@@ -1,0 +1,284 @@
+{
+  "files": {
+    "dot-claude/docs/tickets.md": {
+      "exact": "6ca52dada7a2d48d1b26e14fdee70a41d6af18bccca9f2ba3468d4b08d2cdda0",
+      "kind": "adapted",
+      "loose": "6ca52dada7a2d48d1b26e14fdee70a41d6af18bccca9f2ba3468d4b08d2cdda0",
+      "raw": "6ca52dada7a2d48d1b26e14fdee70a41d6af18bccca9f2ba3468d4b08d2cdda0"
+    },
+    "dot-claude/hooks/tickets/RULES.md": {
+      "exact": "bce416b7bd7bc3d7afcf94178d91dd78278852c42bbfc52452468256e0db9660",
+      "kind": "optional",
+      "loose": "bce416b7bd7bc3d7afcf94178d91dd78278852c42bbfc52452468256e0db9660",
+      "raw": "bce416b7bd7bc3d7afcf94178d91dd78278852c42bbfc52452468256e0db9660"
+    },
+    "dot-claude/hooks/tickets/hooklib/__init__.py": {
+      "exact": "864b0de34702ca0fd960e336a5f177cdf563334652d687fe3776b01623eff15e",
+      "kind": "optional",
+      "loose": "8a205fdba81dc638e1a0a6473aedff8a5095a0e277f950cb59c88e845a4472b6",
+      "raw": "864b0de34702ca0fd960e336a5f177cdf563334652d687fe3776b01623eff15e"
+    },
+    "dot-claude/hooks/tickets/hooklib/fixtures.py": {
+      "exact": "560a65febb22d56aa2a2416c2cda4aabbd483bfe2741c1bc331960b9b4b7a390",
+      "kind": "optional",
+      "loose": "146be25a83ccd6b73b094a82a2a9753e2028e9c8b3b73661b7a0a77e629f33d6",
+      "raw": "560a65febb22d56aa2a2416c2cda4aabbd483bfe2741c1bc331960b9b4b7a390"
+    },
+    "dot-claude/hooks/tickets/hooklib/jsonfile.py": {
+      "exact": "011b80a2f566717f36cc1ec4a5142bf406afdf63a06817bb1f79977bc0372afa",
+      "kind": "optional",
+      "loose": "7258875fe09cde7eb6da9fb733d4ce9ea812ee95b656e9d158d6fe4036863436",
+      "raw": "011b80a2f566717f36cc1ec4a5142bf406afdf63a06817bb1f79977bc0372afa"
+    },
+    "dot-claude/hooks/tickets/hooklib/output.py": {
+      "exact": "1e8377a44213df652e5430085fcada355f065d5d949b0e5b209cf08de105879d",
+      "kind": "optional",
+      "loose": "866696a1ee0dfc3dbfab400ea291b73c005c1262a1aac1a9425240c7c7614c33",
+      "raw": "1e8377a44213df652e5430085fcada355f065d5d949b0e5b209cf08de105879d"
+    },
+    "dot-claude/hooks/tickets/hooklib/paths.py": {
+      "exact": "25057229bf848a7fa0ea21b331a482ba123a86f60705afa5f90cb39ac9208005",
+      "kind": "optional",
+      "loose": "4b9d3af26128ad56ad7dabd861e8749137b25f21f9c06400b39675921dad981f",
+      "raw": "25057229bf848a7fa0ea21b331a482ba123a86f60705afa5f90cb39ac9208005"
+    },
+    "dot-claude/hooks/tickets/hooklib/policy.py": {
+      "exact": "61da033674f5d920e7da8e428adee7eb6f5f259222abbdcf6e7b2a43b3007ff3",
+      "kind": "optional",
+      "loose": "61da033674f5d920e7da8e428adee7eb6f5f259222abbdcf6e7b2a43b3007ff3",
+      "raw": "61da033674f5d920e7da8e428adee7eb6f5f259222abbdcf6e7b2a43b3007ff3"
+    },
+    "dot-claude/hooks/tickets/hooklib/project.py": {
+      "exact": "35f5ea3581cd9285b2e6a2fa655df0da6ac03f6556d535867147ade89a750b87",
+      "kind": "optional",
+      "loose": "63f01a2995f62195ed1eeb6162d1c230256b618d8860eab69008b722a8aea991",
+      "raw": "35f5ea3581cd9285b2e6a2fa655df0da6ac03f6556d535867147ade89a750b87"
+    },
+    "dot-claude/hooks/tickets/hooklib/prompt_clock.py": {
+      "exact": "28b9b675c18d85e9dd5f209418f77ba3a18f561523d1de4aac8a06c33390393e",
+      "kind": "optional",
+      "loose": "94f6c7b16775ddffae3656bf61622d4db0da955df3e1c320a961f65a7070850b",
+      "raw": "28b9b675c18d85e9dd5f209418f77ba3a18f561523d1de4aac8a06c33390393e"
+    },
+    "dot-claude/hooks/tickets/hooklib/runner.py": {
+      "exact": "b1f96fb10760be7a7a6a19fd6024106d05bc732abfc1b2a49289f08a186a7e05",
+      "kind": "optional",
+      "loose": "6ecc868cd821e28ab47025a5480dbde8ed39e32722e1e0d99769f347279d25ec",
+      "raw": "b1f96fb10760be7a7a6a19fd6024106d05bc732abfc1b2a49289f08a186a7e05"
+    },
+    "dot-claude/hooks/tickets/hooklib/selftest.py": {
+      "exact": "7d351ea8abe0c29b895b7983265cfabe702cbad26a8a02699363f64635d25e79",
+      "kind": "optional",
+      "loose": "4cad15b2720e28928596b9c1dcda9cd5732041fd350e3b1cb96fe7dc0d9e1d62",
+      "raw": "7d351ea8abe0c29b895b7983265cfabe702cbad26a8a02699363f64635d25e79"
+    },
+    "dot-claude/hooks/tickets/hooklib/shell.py": {
+      "exact": "997b8f3e3aa35f8e0ec5d71240cd4400ff39ba3cedfc6c9cb3628aae8aad8416",
+      "kind": "optional",
+      "loose": "3f27a35139db528f95a004d26f3d35259eb7a1c29ddd6f7985a2ea83071e3e32",
+      "raw": "997b8f3e3aa35f8e0ec5d71240cd4400ff39ba3cedfc6c9cb3628aae8aad8416"
+    },
+    "dot-claude/hooks/tickets/hooklib/ticket_store.py": {
+      "exact": "915118d705d7125bd36b4b5869e358f5187ca43d534e10a501628f483d82d1bb",
+      "kind": "optional",
+      "loose": "fa9b96412ff0d033822bf6af97a8463ba20344c3ff8c05c85469e60fc7da705f",
+      "raw": "915118d705d7125bd36b4b5869e358f5187ca43d534e10a501628f483d82d1bb"
+    },
+    "dot-claude/hooks/tickets/hooklib/viewer.py": {
+      "exact": "f5dd2f74c10ff8587b7b60cdd4c15446c9974a578c9a8ca5810fcfa3cec529e1",
+      "kind": "optional",
+      "loose": "99e088f804ea4638757f5d1b4667bc75597f8796a55583b53d81f24ca404fa1a",
+      "raw": "f5dd2f74c10ff8587b7b60cdd4c15446c9974a578c9a8ca5810fcfa3cec529e1"
+    },
+    "dot-claude/hooks/tickets/prompt_guard.py": {
+      "exact": "cdee92d5fc66f8c1aa0b8fa33fe04235cb024a2d7af0dab7cdbaa95438629364",
+      "kind": "optional",
+      "loose": "6dd7cd2014bed960afe415eb44b91fa0306bffe459c9be13e570cbfcc91e8171",
+      "raw": "cdee92d5fc66f8c1aa0b8fa33fe04235cb024a2d7af0dab7cdbaa95438629364"
+    },
+    "dot-claude/hooks/tickets/replay.py": {
+      "exact": "2bf95c7173f18a3fc80fc2b382f4d484c3b540879686fc170df4a9f72d7c0b6d",
+      "kind": "optional",
+      "loose": "2e28b7c1c9a1a101c21428b9f640eb3362148def59a019d33802c60f0f7deff8",
+      "raw": "2bf95c7173f18a3fc80fc2b382f4d484c3b540879686fc170df4a9f72d7c0b6d"
+    },
+    "dot-claude/hooks/tickets/rules/__init__.py": {
+      "exact": "c109e3c26dc053cee7dcbe2b771154663eec38ee2fa62c08114613fafd810acb",
+      "kind": "optional",
+      "loose": "310d34fd3144bfe68edd23a1f26f6a33244825ea38f6dafeded3d9964a1ee32a",
+      "raw": "c109e3c26dc053cee7dcbe2b771154663eec38ee2fa62c08114613fafd810acb"
+    },
+    "dot-claude/hooks/tickets/rules/prompt/__init__.py": {
+      "exact": "5a8b2eae43a6e33e273ba9972a3e4144cc473b093256609c830d0f5818f37bcd",
+      "kind": "optional",
+      "loose": "5a8b2eae43a6e33e273ba9972a3e4144cc473b093256609c830d0f5818f37bcd",
+      "raw": "5a8b2eae43a6e33e273ba9972a3e4144cc473b093256609c830d0f5818f37bcd"
+    },
+    "dot-claude/hooks/tickets/rules/prompt/t1_viewer_after_quiet_spell.py": {
+      "exact": "b2f6aac5f6a3d185320f1ca66738d09dce3f746cc2780086cb0ea6e629fbb3a1",
+      "kind": "optional",
+      "loose": "780257d11b483518d6be899d078864aaf22909f315fa50b224313a2e14f968e5",
+      "raw": "b2f6aac5f6a3d185320f1ca66738d09dce3f746cc2780086cb0ea6e629fbb3a1"
+    },
+    "dot-claude/hooks/tickets/rules/write/__init__.py": {
+      "exact": "15a8a4f3cbf800c243f73a3f4b8f6d74cf95400ba26e351980e901db24667b70",
+      "kind": "optional",
+      "loose": "15a8a4f3cbf800c243f73a3f4b8f6d74cf95400ba26e351980e901db24667b70",
+      "raw": "15a8a4f3cbf800c243f73a3f4b8f6d74cf95400ba26e351980e901db24667b70"
+    },
+    "dot-claude/hooks/tickets/rules/write/t2_ticket_system_fork.py": {
+      "exact": "9f7c7f9ba7a681442f5e9bb47a4d959830ac1aad7c5a257d74ad154a4b7c1d36",
+      "kind": "optional",
+      "loose": "713c419e416826b918b34a26ebe465c705ac87f0f9a10162c870347752b80bab",
+      "raw": "9f7c7f9ba7a681442f5e9bb47a4d959830ac1aad7c5a257d74ad154a4b7c1d36"
+    },
+    "dot-claude/hooks/tickets/settings.snippet.json": {
+      "exact": "585cf58eb2407266a87b9094c719902388289130c5586bcc56d8c3d735796d6c",
+      "kind": "optional",
+      "loose": "585cf58eb2407266a87b9094c719902388289130c5586bcc56d8c3d735796d6c",
+      "raw": "585cf58eb2407266a87b9094c719902388289130c5586bcc56d8c3d735796d6c"
+    },
+    "dot-claude/hooks/tickets/shell_guard.py": {
+      "exact": "bc033f0e3d0f6f21668c09acba2e3f96c28c54f827c1fcec0fe362c89d7d57b3",
+      "kind": "optional",
+      "loose": "f109dff8fce6efd1ec959e9a00f9441fa4de7a5f229ce7e818e0559285e6b788",
+      "raw": "bc033f0e3d0f6f21668c09acba2e3f96c28c54f827c1fcec0fe362c89d7d57b3"
+    },
+    "dot-claude/hooks/tickets/write_guard.py": {
+      "exact": "c93cad36f2635f5f818219ebd8781fb2f898966ab8773f1060493f8c84f4f1c6",
+      "kind": "optional",
+      "loose": "887104d53ab6c4c99e328c575905d0fb500b347c4d6b9df27a3a3f793d4d7437",
+      "raw": "c93cad36f2635f5f818219ebd8781fb2f898966ab8773f1060493f8c84f4f1c6"
+    },
+    "dot-claude/skills/tickets/SKILL.md": {
+      "exact": "7e6605fb5fee56d500cce3519e13e8598219f899a252746d3ed701fa8978cc99",
+      "exact_no_settings": "1c5e46958dce70658af5efe157d9a075b3165b4e48a9ee53e47a95e84841dfa8",
+      "kind": "skill",
+      "loose": "7e6605fb5fee56d500cce3519e13e8598219f899a252746d3ed701fa8978cc99",
+      "loose_no_settings": "1c5e46958dce70658af5efe157d9a075b3165b4e48a9ee53e47a95e84841dfa8",
+      "raw": "7e6605fb5fee56d500cce3519e13e8598219f899a252746d3ed701fa8978cc99"
+    },
+    "dot-claude/tickets/config.json": {
+      "exact": "83591f99685eec9756384b98d075f9dd4a2b56d06ba4a5b639b2acabcbe7b94f",
+      "kind": "adapted",
+      "loose": "83591f99685eec9756384b98d075f9dd4a2b56d06ba4a5b639b2acabcbe7b94f",
+      "raw": "83591f99685eec9756384b98d075f9dd4a2b56d06ba4a5b639b2acabcbe7b94f"
+    },
+    "dot-claude/tickets/tags.json": {
+      "exact": "d98adf95ee7e66079a747312c5a2161a00fd3a0b28df7a1a68537d0b381ede1f",
+      "kind": "adapted",
+      "loose": "d98adf95ee7e66079a747312c5a2161a00fd3a0b28df7a1a68537d0b381ede1f",
+      "raw": "d98adf95ee7e66079a747312c5a2161a00fd3a0b28df7a1a68537d0b381ede1f"
+    },
+    "dot-claude/tickets/ticket.schema.json": {
+      "exact": "7a5fffdcf1839e27cf327f5b431a1ffa999a7e76404b57930b906e0b230fdd05",
+      "kind": "adapted",
+      "loose": "7a5fffdcf1839e27cf327f5b431a1ffa999a7e76404b57930b906e0b230fdd05",
+      "raw": "7a5fffdcf1839e27cf327f5b431a1ffa999a7e76404b57930b906e0b230fdd05"
+    },
+    "src/tools/tickets/app.js": {
+      "exact": "8f066eed3b84977f7dfc248261150fd5d70b475efb57992a84a8560b0e90e15f",
+      "kind": "product",
+      "loose": "3174589c870e381e0f49d01fe782e56935674673d7ef7fbd966be77b0e616f78",
+      "raw": "8f066eed3b84977f7dfc248261150fd5d70b475efb57992a84a8560b0e90e15f"
+    },
+    "src/tools/tickets/author.py": {
+      "exact": "a1bc2e52e6944354e698e527277f6aa301ba4f1768cc873b0894514716cc157c",
+      "kind": "product",
+      "loose": "0f8b9edeb8145d3f86e935f8902e305dff89cbbd2b014b7be57b34b8fc91577a",
+      "raw": "a1bc2e52e6944354e698e527277f6aa301ba4f1768cc873b0894514716cc157c"
+    },
+    "src/tools/tickets/icons/apple-touch-icon.png": {
+      "exact": "fcadaa57964459b9fce050c7784b6e18970aef5f7e6ebfe12ff73636bee093fd",
+      "kind": "adapted",
+      "loose": "fcadaa57964459b9fce050c7784b6e18970aef5f7e6ebfe12ff73636bee093fd",
+      "raw": "fcadaa57964459b9fce050c7784b6e18970aef5f7e6ebfe12ff73636bee093fd"
+    },
+    "src/tools/tickets/icons/icon-192.png": {
+      "exact": "aaec417399378f4033c37c5d259a82174d12b5f6629c296b63ca80ac13fb0731",
+      "kind": "adapted",
+      "loose": "aaec417399378f4033c37c5d259a82174d12b5f6629c296b63ca80ac13fb0731",
+      "raw": "aaec417399378f4033c37c5d259a82174d12b5f6629c296b63ca80ac13fb0731"
+    },
+    "src/tools/tickets/icons/icon-512.png": {
+      "exact": "ad1e6a9a58ebf8bea51e46643bb65abf560b87d8f83613a242c01969e5d09056",
+      "kind": "adapted",
+      "loose": "ad1e6a9a58ebf8bea51e46643bb65abf560b87d8f83613a242c01969e5d09056",
+      "raw": "ad1e6a9a58ebf8bea51e46643bb65abf560b87d8f83613a242c01969e5d09056"
+    },
+    "src/tools/tickets/index.html": {
+      "exact": "d019409fdc33b494bbd8d5a0b8c386c8f1c64dc18131765b9db7f0f863ff7d3e",
+      "kind": "product",
+      "loose": "e5399598c1071da624cdc13ea50496279c10428ea707823f723ff8685ad77baf",
+      "raw": "d019409fdc33b494bbd8d5a0b8c386c8f1c64dc18131765b9db7f0f863ff7d3e"
+    },
+    "src/tools/tickets/lib/dompurify/LICENSE": {
+      "exact": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+      "kind": "product",
+      "loose": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+      "raw": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+    },
+    "src/tools/tickets/lib/dompurify/purify.min.js": {
+      "exact": "2c90a9b46d6463f26038a29b686e82bc91de01fdac9d5229e7cfe3b360134ea2",
+      "kind": "product",
+      "loose": "2c90a9b46d6463f26038a29b686e82bc91de01fdac9d5229e7cfe3b360134ea2",
+      "raw": "2c90a9b46d6463f26038a29b686e82bc91de01fdac9d5229e7cfe3b360134ea2"
+    },
+    "src/tools/tickets/lib/dompurify/refresh.md": {
+      "exact": "b9b268d25dbef5b0a8f40e855cb053614cc168d9d88e79b880a7e66e743d47af",
+      "kind": "product",
+      "loose": "b9b268d25dbef5b0a8f40e855cb053614cc168d9d88e79b880a7e66e743d47af",
+      "raw": "b9b268d25dbef5b0a8f40e855cb053614cc168d9d88e79b880a7e66e743d47af"
+    },
+    "src/tools/tickets/lib/marked/LICENSE": {
+      "exact": "8e3a3f82f59a60958f56ca08f445647c32a4733dc7ca6c2c46f6eb898471ab9c",
+      "kind": "product",
+      "loose": "8e3a3f82f59a60958f56ca08f445647c32a4733dc7ca6c2c46f6eb898471ab9c",
+      "raw": "8e3a3f82f59a60958f56ca08f445647c32a4733dc7ca6c2c46f6eb898471ab9c"
+    },
+    "src/tools/tickets/lib/marked/marked.umd.min.js": {
+      "exact": "e67a06aa3661785f8ab4ee803094651c04570630814df305b492decef588d905",
+      "kind": "product",
+      "loose": "e67a06aa3661785f8ab4ee803094651c04570630814df305b492decef588d905",
+      "raw": "e67a06aa3661785f8ab4ee803094651c04570630814df305b492decef588d905"
+    },
+    "src/tools/tickets/lib/marked/refresh.md": {
+      "exact": "e876172b08f998a45fc8973ba34592d5945e5d7a99594198b6beef996d8d7593",
+      "kind": "product",
+      "loose": "e876172b08f998a45fc8973ba34592d5945e5d7a99594198b6beef996d8d7593",
+      "raw": "e876172b08f998a45fc8973ba34592d5945e5d7a99594198b6beef996d8d7593"
+    },
+    "src/tools/tickets/make_icons.py": {
+      "exact": "1671939e3b9d2c4c2520ed26e57a08073b29768d3fa84ac1d6cec7ac3056a497",
+      "kind": "product",
+      "loose": "8feb904493bd6bd818128593f4720fc28d0bedcdea0c4f11d2b86cc57f806d1f",
+      "raw": "1671939e3b9d2c4c2520ed26e57a08073b29768d3fa84ac1d6cec7ac3056a497"
+    },
+    "src/tools/tickets/manifest.webmanifest": {
+      "exact": "668e1df5c8d2aa6554a0b923c9810a62e3d4026d5ce27be1a285e1b980d9d8bc",
+      "kind": "product",
+      "loose": "668e1df5c8d2aa6554a0b923c9810a62e3d4026d5ce27be1a285e1b980d9d8bc",
+      "raw": "668e1df5c8d2aa6554a0b923c9810a62e3d4026d5ce27be1a285e1b980d9d8bc"
+    },
+    "src/tools/tickets/serve.py": {
+      "exact": "dc63140b018dd999aacee559ca276a23d43af6a93f69e3cdc853999605dd0dce",
+      "kind": "product",
+      "loose": "97da2a059c973ad45e0a019c34463a393ce2ce162d5b521a95696821912080f6",
+      "raw": "dc63140b018dd999aacee559ca276a23d43af6a93f69e3cdc853999605dd0dce"
+    },
+    "src/tools/tickets/style.css": {
+      "exact": "cdbb8d0469a685d9ff96aa013123c3ebc4528b03983e70a8b436eda7a2073f65",
+      "kind": "product",
+      "loose": "06320fbbc04d44bd282573aed6c1f53500fd4bca6ba656100b877490c4977dd3",
+      "raw": "cdbb8d0469a685d9ff96aa013123c3ebc4528b03983e70a8b436eda7a2073f65"
+    },
+    "src/tools/tickets/tickets.py": {
+      "exact": "0e3d4e3b44862fc7526f07bbfbcc4e0be3758214c9af9e1fcae65bfa912ef87d",
+      "kind": "product",
+      "loose": "5b994f0dae6bd4e0993ae4ab10a29b53f0c9e43610d34500d5e0a654d640edcf",
+      "raw": "0e3d4e3b44862fc7526f07bbfbcc4e0be3758214c9af9e1fcae65bfa912ef87d"
+    }
+  },
+  "normalize": 2,
+  "version": "1.3.0"
+}

@@ -1,0 +1,27 @@
+# Upgrading an existing ticket system copy
+
+*For an agent (or its PM) in a project that already runs the ticket system. It covers finding out which release you run, recording it, and moving to a newer one. For a project with no copy, use `ADOPTING.md`.*
+
+*Assessed 2026-10-21 (B47, under the documentation standard): split. A reader comes for one upgrade path, not the whole guide: the sections for the releases between theirs and the target, the general procedure they cite, the release notes, and the hooks only if installed. The sections stand alone apart from citing sect. 3's steps and the names below, which stay here. Each section is a file under `upgrading/` and keeps its number and its step numbers, so a citation such as "UPGRADING.md sect. 7 step 7" resolves through the contents below to step 7 of the file named at 7.*
+
+Throughout:
+- `SRC` = the folder holding the release: a clone of the GitHub repo, `https://github.com/shadowevil/claude-ticket-system`, or, on the maintainer's machine, the maintainer's source folder, from which you export a release (sect. 3 step 2);
+- `REPO` = your repository's root;
+- `SCRATCH` = your session's scratch folder: `<REPO>/.claude/scratch/<role>/<task>/`, inside your project and git-ignored. Never a system temp folder or the harness's scratchpad, which lives in one;
+- `CLI_DIR` = where your `tickets.py` lives (`src/tools/tickets`, `tools/tickets`, or the folder your `config.json` names in `tool_dir`);
+- **the maintainer** = whoever maintains the ticket system. Problems, local changes you want kept and wanted changes go to the GitHub repo's issues, `https://github.com/shadowevil/claude-ticket-system/issues`; on the maintainer's machine, to the `Ticket Master` session as a message. An issue is public, so draft it (what you saw against what you expected, repro steps, the version, with no private paths and no ticket text your user hasn't approved), show it to your user, and post it only with their OK. "Tell the maintainer" the version you now run means the `Ticket Master` session on the maintainer's machine, and your user anywhere else.
+
+**Your board, tickets, `config.json`, tags and running viewer are yours. An upgrade never touches your tickets.** You upgrade when the maintainer announces a release (on the maintainer's machine) or publishes one on GitHub, or when you choose to. Nobody edits your repo for you.
+
+## Contents
+
+Each entry is a file under `upgrading/`, listed by the section number it keeps: "sect. N step M" is step M of the file at N.
+
+1. `upgrading/identify-and-record.md` - **identify what you run:** `release.py identify`, where it looks for the tool folder (`--cli-dir`, `tool_dir`, the two default folders), the states and the file kinds it prints, reading the result for 1.0.0 and for 1.1.0 or later, and diffing each local change against an export. Read it before any upgrade, and whenever `identify` says "diff it (UPGRADING.md sect. 1)".
+2. `upgrading/identify-and-record.md` - **record your version:** the skill's `Ticket system version` Settings row and its check. Read it when you first record the version you run; every upgrade path sets the row in its skill step.
+3. `upgrading/general-procedure.md` - **upgrade to a newer release:** which section fits the version you run (and the path from a public clone, which publishes 1.3.1 and later), the tool-folder rule (copy everything except `icons/`, B43), and the 12 general steps, from filing the upgrade to telling the maintainer. Read it for every upgrade; sect. 4, 5 and 7 cite its steps.
+4. `upgrading/1.0.0-to-1.1.0.md` - **1.0.0 -> 1.1.0:** every per-project value moves into `config.json` (with where your 1.0.0 code holds each one), the libraries move into `lib/`, the `in_review` status arrives, and the rules doc and the skill's rows are mapped; what behaves differently, then 13 steps. Read it only on a 1.0.0 copy.
+5. `upgrading/1.1.0-to-1.2.0.md` - **1.1.0 -> 1.2.0:** the optional `icon_color` key (with how to find your 1.0.0 colour), the skill's Rules doc row, the `.gitattributes` lines; what behaves differently, then 12 steps. Read it on a 1.1.0 copy, or after sect. 4.
+6. `upgrading/hooks.md` - **the ticket hooks** (optional, log-only): the first install, upgrading installed hooks (the staged self-test with `--scratch`, the wiring merge, the installed self-test), and the move from the hooks' original, pre-release layout. Read it only if you have the hooks or want them; each upgrade path's hooks step sends you here.
+7. `upgrading/1.2.x-to-1.3.0.md` - **1.2.x -> 1.3.0 (numbered tags):** what behaves differently (tag ids on disk, the tag-store lock, tag groups, `set` and `show` on a broken ticket, the full store, `--abort-interrupted`), then 15 steps. Step 7 is the hand rename of an all-digit tag name or an integer tag value before the probe, which `tickets.py` and `author.py` cite as "docs/UPGRADING.md sect. 7 step 7". Read it on any 1.2.x copy, or after sect. 4 and 5.
+- `upgrading/release-notes.md` - **per-release notes,** 1.3.1 back to 1.0.0: for each release, the tool-folder files that changed and what to copy, the skill rows to replace, the `.gitignore` lines, the hooks, and what `identify` showed for the 1.0.0 copies. Read the note of every release after the one you run, up to the target.

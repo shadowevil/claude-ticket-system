@@ -1,0 +1,32 @@
+# 6. The ticket hooks
+
+*Sect. 6 of the upgrade guide, `../UPGRADING.md`: read its opening first, for `SRC`, `REPO`, `SCRATCH` and `CLI_DIR`. A bare "sect. N" here is that guide's sect. N, and its index names the file. `ADOPTING.md` is `../ADOPTING.md`, an index too.*
+
+The hooks are optional and log-only (`ADOPTING.md`, "Optional: ticket hooks"). Every hook write is staged and reviewed by a separate read-only agent before install (global rule, 2026-09-28), and a global install needs the user's approval.
+
+- **First install:** follow `ADOPTING.md`, "Optional: ticket hooks". The hooks need `viewer_port` in `config.json`, which the 1.1.0 viewer needs anyway. T1 then reads the port and the marker from `config.json`. With a 1.0.0 viewer still installed, T1 falls back to the script's own `default_port` and `service_marker`.
+- **Upgrading installed hooks:**
+  1. Stage the new `PAYLOAD/dot-claude/hooks/tickets/`, and have it reviewed. As part of the review, run the self-test on the staged copy, before anything is installed. `STAGED` is the staged `hooks/tickets` folder, wherever it sits: `PAYLOAD/dot-claude/hooks/tickets` if you review the export in place, or any folder you copied it to.
+     ```bash
+     python -I -S -B STAGED/prompt_guard.py --self-test --scratch <REPO>/.claude/scratch/<role>/<task>/
+     ```
+     Always pass `--scratch`: an existing folder of yours (your `SCRATCH`, as above), outside `STAGED` and outside the export's `payload/`. It must not be the project root or `.claude/` itself (from 1.3.0): a killed run's folder there would be ignored by nothing. The self-test's scratch projects go there and are removed when it ends, so nothing goes to the system temp folder, which your scratch rules forbid. It writes nothing inside `STAGED`, or inside the export's `payload/` when you run it there, and `-B` keeps `__pycache__` out. The reviewer still reviews exactly what was staged. The self-test that runs is the staged one, so this holds for any staged release from 1.2.1 on, whatever you run now. The 1.2.0 self-test wrote into the staged copy while it ran. A staged 1.2.1 has no `--scratch`; it ignores the option and uses the temp folder, so stage 1.2.2 or later, which every upgrade to 1.3.0 does. A 1.2.2 or later self-test uses the temp folder only when `--scratch` is left out.
+     If it prints `self-test: refused: ...` and exits 2, nothing was written, not even a probe file, and the line gives the reason. Most likely the `--scratch` folder is missing, lies inside the staged folder or the export's `payload/`, or is the project root or `.claude/` itself: create it or choose another, and run it again. Without `--scratch` it is that the temp folder (the first existing one of `TMPDIR`, `TEMP`, `TMP`) lies inside the staged folder, or inside the export's `payload/` when you run it in place, or that no temp folder is usable. A staged 1.2.1 that refuses has left one probe file in that temp folder for an instant and deleted it; from 1.2.2 it doesn't.
+     **Check:** the staged self-test ends in `0 failure(s)`, and the review passed.
+  2. Have the upgrade filed as a request whose provenance line names `Ticket Master`, and set `in_progress` (sect. 3 step 1), so that T2 logs the copy as `tied`, not `fork`.
+     **Check:** `list --active` shows it.
+  3. Replace `.claude/hooks/tickets/` with the new folder. If you enforce a rule, keep your `hooklib/policy.py`.
+     **Check:** the folder matches the payload, apart from your `policy.py` if you kept it.
+  4. Diff the new `settings.snippet.json` against your `.claude/settings.json` wiring, and merge any change by hand.
+     **Check:** your `settings.json` still parses, and its three commands match the snippet's exactly.
+  5. Run the self-test again, from `REPO` on the installed path, always with `--scratch` (1.2.2 and later): `python -I -S -B .claude/hooks/tickets/prompt_guard.py --self-test --scratch <REPO>/.claude/scratch/<role>/<task>/`. The self-test itself writes nothing else in `REPO`: its scratch projects go to that folder, and the system temp folder isn't used. Without `--scratch` they go to the temp folder, and a temp folder inside `REPO` is refused (exit 2, one `self-test: refused: ...` line, nothing written). A `build/hooks/tickets/selftest/` left by an interrupted run of an older self-test is safe to delete.
+     - **If your project's scratch is elsewhere inside the repo** (for example a gitignored `working/` folder), pass that folder, or one in it, instead: `python -I -S -B .claude/hooks/tickets/prompt_guard.py --self-test --scratch working/selftest`. The folder must exist, be gitignored, and lie outside `.claude/hooks/tickets/` and `.claude/tickets/`; from 1.3.0 it must not be the project root or `.claude/` itself either. Inside those, or when it is missing or a file, or when it is the project root or `.claude/` itself, the self-test refuses in the same way. Its scratch projects are then `tickets-selftest-*` folders directly in that folder, removed when the run ends, and the system temp folder isn't used at all. Any other argument is refused too, so a mistyped option (`--Scratch`, `--scratch-dir`) never quietly runs in the system temp folder. `RULES.md`, "`--scratch <dir>`", has the exact rules.
+     - **The alternative is to run it from an export.** Check that `REPO/.claude/hooks/tickets/` matches the export's `PAYLOAD/dot-claude/hooks/tickets/` file for file (apart from your `policy.py` if you kept it), then run the self-test on the export, outside `REPO`, as in step 1. It tests the same files and writes nothing in `REPO`.
+     **Check:** it ends in `0 failure(s)`.
+- **From the hooks' original, pre-release layout** (`.claude/hooks/` with `prompt_guard.py`, `write_guard.py`, `shell_guard.py`, `replay.py`, `RULES.md`, `hooklib/` and `rules/`, and logs in `build/hooks/`, as the adopting project that first ran them had them before 1.1.0), in one reviewed change. If they are installed:
+  1. Remove the old hook files and their three entries in `.claude/settings.json`.
+  2. Install the package as a first install.
+  3. Make sure `viewer_port`, and any `viewer_service` or `tool_dir` you need, are in `config.json`.
+
+  Old logs in `build/hooks/` stay as history; the package writes to `build/hooks/tickets/`.
+  **Check:** the self-test ends in `0 failure(s)`, and `.claude/settings.json` holds only the three `.claude/hooks/tickets/` commands for these rules.

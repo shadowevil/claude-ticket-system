@@ -1,0 +1,139 @@
+{
+  "files": {
+    "dot-claude/docs/portable_workflow.md": {
+      "exact": "ce0f5ff226f4a6f1cc5e1482fa30c6b3de1d9bc945342c69f0e9e0b07717a2a6",
+      "kind": "adapted",
+      "loose": "ce0f5ff226f4a6f1cc5e1482fa30c6b3de1d9bc945342c69f0e9e0b07717a2a6",
+      "raw": "ce0f5ff226f4a6f1cc5e1482fa30c6b3de1d9bc945342c69f0e9e0b07717a2a6"
+    },
+    "dot-claude/docs/tickets.md": {
+      "exact": "e2a415c51886e7826d9762c74aff4291d2ea4a39857133ad3192eaa8111156ad",
+      "kind": "adapted",
+      "loose": "e2a415c51886e7826d9762c74aff4291d2ea4a39857133ad3192eaa8111156ad",
+      "raw": "e2a415c51886e7826d9762c74aff4291d2ea4a39857133ad3192eaa8111156ad"
+    },
+    "dot-claude/skills/tickets/SKILL.md": {
+      "exact": "f9967307f78706c722282ada3f1ce2222ec4877ba43af4b55ec01d5f49d84876",
+      "exact_no_settings": "3c01ac16cd84c23558a39a47e118a5cf4d0f2628524e8bf3b6e0b199dc0a7bcf",
+      "kind": "skill",
+      "loose": "f9967307f78706c722282ada3f1ce2222ec4877ba43af4b55ec01d5f49d84876",
+      "loose_no_settings": "3c01ac16cd84c23558a39a47e118a5cf4d0f2628524e8bf3b6e0b199dc0a7bcf",
+      "raw": "f9967307f78706c722282ada3f1ce2222ec4877ba43af4b55ec01d5f49d84876"
+    },
+    "dot-claude/tickets/config.json": {
+      "exact": "2c147c1b906cc3cb8f3c4240c4fc24762717a4517c9123eec6613b863169259f",
+      "kind": "adapted",
+      "loose": "2c147c1b906cc3cb8f3c4240c4fc24762717a4517c9123eec6613b863169259f",
+      "raw": "2c147c1b906cc3cb8f3c4240c4fc24762717a4517c9123eec6613b863169259f"
+    },
+    "dot-claude/tickets/tags.json": {
+      "exact": "7cb662410b9466987a5f207505ae2a3d4184ae260760979f04b98d260362747d",
+      "kind": "adapted",
+      "loose": "7cb662410b9466987a5f207505ae2a3d4184ae260760979f04b98d260362747d",
+      "raw": "7cb662410b9466987a5f207505ae2a3d4184ae260760979f04b98d260362747d"
+    },
+    "dot-claude/tickets/ticket.schema.json": {
+      "exact": "fb7d7afca35ac15981bb7b9684f76b301c7ae39d2a1a8e11ddaef7316d33a064",
+      "kind": "adapted",
+      "loose": "fb7d7afca35ac15981bb7b9684f76b301c7ae39d2a1a8e11ddaef7316d33a064",
+      "raw": "fb7d7afca35ac15981bb7b9684f76b301c7ae39d2a1a8e11ddaef7316d33a064"
+    },
+    "external/dompurify/LICENSE": {
+      "exact": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+      "kind": "product",
+      "loose": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+      "raw": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+    },
+    "external/dompurify/purify.min.js": {
+      "exact": "2c90a9b46d6463f26038a29b686e82bc91de01fdac9d5229e7cfe3b360134ea2",
+      "kind": "product",
+      "loose": "2c90a9b46d6463f26038a29b686e82bc91de01fdac9d5229e7cfe3b360134ea2",
+      "raw": "2c90a9b46d6463f26038a29b686e82bc91de01fdac9d5229e7cfe3b360134ea2"
+    },
+    "external/dompurify/refresh.md": {
+      "exact": "fa0f845fd0ba30d8d83e8badb0e4d887b2ca13bc699ca8e33c66754c457a56c0",
+      "kind": "product",
+      "loose": "fa0f845fd0ba30d8d83e8badb0e4d887b2ca13bc699ca8e33c66754c457a56c0",
+      "raw": "fa0f845fd0ba30d8d83e8badb0e4d887b2ca13bc699ca8e33c66754c457a56c0"
+    },
+    "external/marked/LICENSE": {
+      "exact": "8e3a3f82f59a60958f56ca08f445647c32a4733dc7ca6c2c46f6eb898471ab9c",
+      "kind": "product",
+      "loose": "8e3a3f82f59a60958f56ca08f445647c32a4733dc7ca6c2c46f6eb898471ab9c",
+      "raw": "8e3a3f82f59a60958f56ca08f445647c32a4733dc7ca6c2c46f6eb898471ab9c"
+    },
+    "external/marked/marked.umd.min.js": {
+      "exact": "e67a06aa3661785f8ab4ee803094651c04570630814df305b492decef588d905",
+      "kind": "product",
+      "loose": "e67a06aa3661785f8ab4ee803094651c04570630814df305b492decef588d905",
+      "raw": "e67a06aa3661785f8ab4ee803094651c04570630814df305b492decef588d905"
+    },
+    "external/marked/refresh.md": {
+      "exact": "5c83523877fb99372f372b821c50759cfa666cb247a21861d48631e754f483ef",
+      "kind": "product",
+      "loose": "5c83523877fb99372f372b821c50759cfa666cb247a21861d48631e754f483ef",
+      "raw": "5c83523877fb99372f372b821c50759cfa666cb247a21861d48631e754f483ef"
+    },
+    "src/tools/tickets/app.js": {
+      "exact": "949ab8d667351879c0e3777f21581782b7bbe2dd129591da58923c7b0ed9a3c3",
+      "kind": "product",
+      "loose": "4033523846ceac49e872bcda227130c7cdfefa690963cdde6cb9049a82faa4ef",
+      "raw": "949ab8d667351879c0e3777f21581782b7bbe2dd129591da58923c7b0ed9a3c3"
+    },
+    "src/tools/tickets/icons/apple-touch-icon.png": {
+      "exact": "30f83a08996b6977b85de7b8d2fb5fcb27f29d698b00d78d55cf7e2cd9f8c729",
+      "kind": "product",
+      "loose": "30f83a08996b6977b85de7b8d2fb5fcb27f29d698b00d78d55cf7e2cd9f8c729",
+      "raw": "30f83a08996b6977b85de7b8d2fb5fcb27f29d698b00d78d55cf7e2cd9f8c729"
+    },
+    "src/tools/tickets/icons/icon-192.png": {
+      "exact": "d2c68f209f42bc79f85274d67e49c9b2bb245680ef52afee7c3b4dbf4024f735",
+      "kind": "product",
+      "loose": "d2c68f209f42bc79f85274d67e49c9b2bb245680ef52afee7c3b4dbf4024f735",
+      "raw": "d2c68f209f42bc79f85274d67e49c9b2bb245680ef52afee7c3b4dbf4024f735"
+    },
+    "src/tools/tickets/icons/icon-512.png": {
+      "exact": "79314753b43e7d2adc5841635229c405b69d8abcbe16e5eb72c637252c126b92",
+      "kind": "product",
+      "loose": "79314753b43e7d2adc5841635229c405b69d8abcbe16e5eb72c637252c126b92",
+      "raw": "79314753b43e7d2adc5841635229c405b69d8abcbe16e5eb72c637252c126b92"
+    },
+    "src/tools/tickets/index.html": {
+      "exact": "7136fe36013253121cbff7acc08dd2a205316f9c494011c4fd75c981627e0707",
+      "kind": "product",
+      "loose": "3b46a4e5db5f9439feb11a8ccf0393b49dc4e2d6335d79f432b74ca54321a1e6",
+      "raw": "7136fe36013253121cbff7acc08dd2a205316f9c494011c4fd75c981627e0707"
+    },
+    "src/tools/tickets/make_icons.py": {
+      "exact": "b35687ac7906d1de71bc27da82b5f5c47e2d3be4faea21e6cb644fed6dfc43d7",
+      "kind": "product",
+      "loose": "1467ddddc327bba7c83dfacc282e0c771cf3eca4566c30eff2d5c50c3be5466c",
+      "raw": "b35687ac7906d1de71bc27da82b5f5c47e2d3be4faea21e6cb644fed6dfc43d7"
+    },
+    "src/tools/tickets/manifest.webmanifest": {
+      "exact": "47624cd2cd2592a1dd25576d648c455c39258ff9b4f56f0298568897e0b81e6f",
+      "kind": "product",
+      "loose": "47624cd2cd2592a1dd25576d648c455c39258ff9b4f56f0298568897e0b81e6f",
+      "raw": "47624cd2cd2592a1dd25576d648c455c39258ff9b4f56f0298568897e0b81e6f"
+    },
+    "src/tools/tickets/serve.py": {
+      "exact": "a2257ca2bc76039cd0769dfae7d949035a2bc733eb7cd5bbaeec1026a63b24f8",
+      "kind": "product",
+      "loose": "0044494b84ad2a69692729d24c24d351568de3e86a80114013f2b735f13dcd4f",
+      "raw": "a2257ca2bc76039cd0769dfae7d949035a2bc733eb7cd5bbaeec1026a63b24f8"
+    },
+    "src/tools/tickets/style.css": {
+      "exact": "5a9bd82c4f6066e3e7e081939325fb7dd12ff0c59328d028c00ecf4f9c9596a7",
+      "kind": "product",
+      "loose": "ca9f261b241275dc72a23efcdc4ca37a5b2ed853d446e7bca8908eda3dbe0b70",
+      "raw": "5a9bd82c4f6066e3e7e081939325fb7dd12ff0c59328d028c00ecf4f9c9596a7"
+    },
+    "src/tools/tickets/tickets.py": {
+      "exact": "e7bb4ed5edd614f61a0aca1ed29ed4c1bf3485248db4430df76650d15bbdb9a8",
+      "kind": "product",
+      "loose": "94d0403941edf522f35c6532c540f0ac189e65e310d85f4202871f78faac5546",
+      "raw": "e7bb4ed5edd614f61a0aca1ed29ed4c1bf3485248db4430df76650d15bbdb9a8"
+    }
+  },
+  "version": "1.0.0"
+}

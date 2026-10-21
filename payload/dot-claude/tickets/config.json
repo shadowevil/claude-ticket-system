@@ -1,0 +1,10 @@
+{
+  "id_prefix": "XY-",
+  "first_ticket_number": 1,
+  "store_name": "Example",
+  "short_name": "Example",
+  "viewer_port": 18600,
+  "tag_groups": [
+    { "name": "area", "tags": ["core", "ui"], "min": 0, "max": 1 }
+  ]
+}

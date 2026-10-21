@@ -1,0 +1,759 @@
+/* Ticket viewer - read-only. Data: GET /api/tickets (read fresh from .claude/tickets). The project's
+   name, id prefix and theme key come from data- attributes that serve.py fills in on <html>. */
+(function () {
+	"use strict";
+
+	// A status missing here (a project's own schema may add one) still shows, as a neutral pill.
+	var status_order = ["open", "in_progress", "in_review", "blocked", "done", "wont_do"];
+	// "open" is stored; the user asked to see it as TODO (2026-09-30).
+	var status_labels = { open: "TODO", in_progress: "In progress", in_review: "In review", blocked: "Blocked", done: "Done", wont_do: "Won't do" };
+	var severity_order = ["critical", "high", "medium", "low"];
+	var severity_labels = { critical: "Critical", high: "High", medium: "Medium", low: "Low" };
+	var active_statuses = ["open", "in_progress", "in_review", "blocked"];
+	var page_data = document.documentElement.dataset;
+	var page_title = (page_data.storeName || "Project") + " Tickets";
+	var theme_key = page_data.themeKey || "tickets-theme";
+	// config.json's id_prefix, taken literally; any capitals-and-hyphen prefix when the page lacks it.
+	var id_prefix_source = /^[A-Z][A-Z0-9]*-$/.test(page_data.idPrefix || "") ? escape_regex(page_data.idPrefix) : "[A-Z][A-Z0-9]*-";
+	var ticket_id_pattern = new RegExp("\\b" + id_prefix_source + "\\d{4,}\\b", "g");
+	var hash_id_pattern = new RegExp("^#(" + id_prefix_source + "\\d{4,})$");
+	// Matches the phone breakpoint in style.css: below it, list and detail are separate views.
+	var single_view_query = window.matchMedia("(max-width: 899px)");
+	var theme_colors = { dark: "#2d2d30", light: "#eeeef2" };
+	// A tag's colour is used only when written #rrggbb (as tags.json requires); anything else, and a tag the store
+	// does not hold, shows in this neutral grey.
+	var tag_color_pattern = /^#[0-9a-fA-F]{6}$/;
+	var neutral_tag_color = "#808080";
+	// A ticket's tag is an id (a positive integer, or its digits as a string) or, until the store is converted, a name.
+	var tag_digits_pattern = /^[0-9]+$/;
+	// The tag store format whose ids are real. An older store (tag_format 1) is numbered by the server in name order for
+	// listing only, so a ticket's integer or digit-string tag finds nothing there and shows as unknown, as tickets.py shows it.
+	var numbered_tag_format = 2;
+
+	var columns = [
+		{ key: "id", label: "Key" },
+		{ key: "summary", label: "Summary" },
+		{ key: "severity", label: "Severity" },
+		{ key: "status", label: "Status" },
+		{ key: "owner_area", label: "Owner" },
+		{ key: "updated", label: "Updated" }
+	];
+
+	var state = {
+		tickets: [],
+		tags: index_tags({}),
+		selected: null,
+		sort_key: "severity",
+		sort_descending: false,
+		opened_from_list: false,
+		filters: { status: "active", severity: "", tag: "", owner: "", target: "", text: "" }
+	};
+
+	var icons = {
+		refresh: "M13.5 2v4h-4l1.6-1.6A4.5 4.5 0 1 0 12.4 10l1.3.6A6 6 0 1 1 12.2 3.3L13.5 2z",
+		moon: "M9.5 1.5a6.5 6.5 0 1 0 5 10.6A5.5 5.5 0 0 1 9.5 1.5z",
+		sun: "M8 4.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7zM7.4 0h1.2v2.5H7.4zM7.4 13.5h1.2V16H7.4zM0 7.4h2.5v1.2H0zM13.5 7.4H16v1.2h-2.5zM2.1 3l.9-.9 1.8 1.8-.9.9zM11.2 12.1l.9-.9 1.8 1.8-.9.9zM2.1 13l1.8-1.8.9.9L3 13.9zM11.2 3.9 13 2.1l.9.9-1.8 1.8z",
+		back: "M10.7 2.3 5 8l5.7 5.7-1 1L3 8l6.7-6.7z",
+		critical: "M8 1 2 7l1.1 1.1L8 3.2l4.9 4.9L14 7zM8 7 2 13l1.1 1.1L8 9.2l4.9 4.9L14 13z",
+		high: "M8 4 2 10l1.1 1.1L8 6.2l4.9 4.9L14 10z",
+		medium: "M2 5h12v1.6H2zM2 9.4h12V11H2z",
+		low: "M8 12 2 6l1.1-1.1L8 9.8l4.9-4.9L14 6z",
+		sort_up: "M8 4 3 10h10z",
+		sort_down: "M8 12 3 6h10z"
+	};
+
+	function escape_regex(text) {
+		return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+	}
+
+	function $(id) {
+		return document.getElementById(id);
+	}
+
+	function svg_icon(name) {
+		var ns = "http://www.w3.org/2000/svg";
+		var svg = document.createElementNS(ns, "svg");
+		svg.setAttribute("viewBox", "0 0 16 16");
+		svg.setAttribute("aria-hidden", "true");
+		var path = document.createElementNS(ns, "path");
+		path.setAttribute("d", icons[name]);
+		path.setAttribute("fill", "currentColor");
+		svg.appendChild(path);
+		return svg;
+	}
+
+	function el(tag, class_name, text) {
+		var node = document.createElement(tag);
+		if (class_name) {
+			node.className = class_name;
+		}
+		if (text !== undefined && text !== null) {
+			node.textContent = text;
+		}
+		return node;
+	}
+
+	function append(parent, children) {
+		children.forEach(function (child) {
+			if (child) {
+				parent.appendChild(child);
+			}
+		});
+		return parent;
+	}
+
+	/* --- theme ---------------------------------------------------------------------------- */
+
+	function stored_theme() {
+		try {
+			return window.localStorage.getItem(theme_key);
+		} catch (error) {
+			return null;
+		}
+	}
+
+	function apply_theme(theme) {
+		document.documentElement.setAttribute("data-theme", theme);
+		var meta = document.querySelector('meta[name="theme-color"]');
+		if (meta) {
+			meta.setAttribute("content", theme_colors[theme]);
+		}
+		var button = $("theme-button");
+		button.textContent = "";
+		button.appendChild(svg_icon(theme === "dark" ? "sun" : "moon"));
+		button.title = theme === "dark" ? "Switch to Light theme" : "Switch to Dark theme";
+	}
+
+	function toggle_theme() {
+		var next = document.documentElement.getAttribute("data-theme") === "dark" ? "light" : "dark";
+		apply_theme(next);
+		try {
+			window.localStorage.setItem(theme_key, next);
+		} catch (error) {
+			/* private mode or blocked storage: the choice lasts for this visit only */
+		}
+	}
+
+	/* --- data ----------------------------------------------------------------------------- */
+
+	function load() {
+		return fetch("/api/tickets", { cache: "no-store" })
+			.then(function (response) {
+				if (!response.ok) {
+					throw new Error("HTTP " + response.status);
+				}
+				return response.json();
+			})
+			.then(function (data) {
+				state.tickets = (data.tickets || []).filter(function (ticket) {
+					return ticket && typeof ticket === "object" && ticket.id;
+				});
+				state.tags = index_tags(data.tags, data.tag_format === numbered_tag_format);
+				show_problems(data.problems || []);
+				fill_filter_options();
+				render_all();
+			})
+			.catch(function (error) {
+				show_problems(["Could not load /api/tickets: " + error.message]);
+			});
+	}
+
+	/* Live updates: the server pushes the ticket folder's version on connect and whenever a file
+	   changes; a new version reloads. A reconnect after sleep compares too, so nothing is missed. */
+	var live_version = null;
+
+	function connect_live() {
+		if (!window.EventSource) {
+			return;
+		}
+		var source = new EventSource("/api/events");
+		source.addEventListener("tickets", function (event) {
+			if (live_version !== null && event.data !== live_version) {
+				load();
+			}
+			live_version = event.data;
+			$("refresh-button").classList.add("live");
+		});
+		source.addEventListener("error", function () {
+			$("refresh-button").classList.remove("live");
+		});
+	}
+
+	function show_problems(problems) {
+		var box = $("problems");
+		box.textContent = "";
+		if (!problems.length) {
+			box.hidden = true;
+			return;
+		}
+		box.appendChild(el("strong", null, "Problems in the ticket store (run tickets.py validate):"));
+		var list = el("ul");
+		problems.forEach(function (problem) {
+			list.appendChild(el("li", null, problem));
+		});
+		box.appendChild(list);
+		box.hidden = false;
+	}
+
+	function find_ticket(id) {
+		for (var index = 0; index < state.tickets.length; index++) {
+			if (state.tickets[index].id === id) {
+				return state.tickets[index];
+			}
+		}
+		return null;
+	}
+
+	/* --- tags: the store maps an id to its name, colour and description ------------------- */
+
+	/* The store's map (id string -> {name, color, description}) as lookups by id and by name, plus the ids in name
+	   order. Every value comes from a file: an entry without a usable id or name is skipped, a colour that is not
+	   #rrggbb becomes the neutral one, and the lookups have no prototype, so a name such as "constructor" finds
+	   nothing it should not. numbered is true only for a store whose ids are real (numbered_tag_format): resolve_tag looks
+	   a ticket's id up only then. */
+	function index_tags(map, numbered) {
+		var index = { by_id: Object.create(null), by_name: Object.create(null), ids: [], numbered: numbered === true };
+		if (!map || typeof map !== "object" || Array.isArray(map)) {
+			return index;
+		}
+		Object.keys(map).forEach(function (key) {
+			var entry = map[key];
+			if (!/^[1-9][0-9]*$/.test(key) || !entry || typeof entry !== "object" || typeof entry.name !== "string" || !entry.name) {
+				return;
+			}
+			var tag = {
+				id: key,
+				name: entry.name,
+				color: typeof entry.color === "string" && tag_color_pattern.test(entry.color) ? entry.color : neutral_tag_color,
+				description: typeof entry.description === "string" ? entry.description : "",
+				known: true
+			};
+			index.by_id[key] = tag;
+			if (!(entry.name in index.by_name)) {
+				index.by_name[entry.name] = tag;
+			}
+			index.ids.push(key);
+		});
+		index.ids.sort(function (a, b) {
+			return index.by_id[a].name.localeCompare(index.by_id[b].name) || Number(a) - Number(b);
+		});
+		return index;
+	}
+
+	/* One value of a ticket's tags as the tag it names: an integer or a digit string by id, any other string by name.
+	   A value the store does not hold comes back as an unknown tag carrying the raw value, shown in neutral grey. So
+	   does every id while the store is not numbered (index_tags): its ids are provisional and name no tag yet. */
+	function resolve_tag(value) {
+		var tags = state.tags;
+		var key = null;
+		if (typeof value === "number" && Math.floor(value) === value && value > 0) {
+			key = String(value);
+		} else if (typeof value === "string" && tag_digits_pattern.test(value)) {
+			key = String(parseInt(value, 10));
+		}
+		var found = key !== null ? (tags.numbered ? tags.by_id[key] : undefined) :
+			typeof value === "string" ? tags.by_name[value] : undefined;
+		if (found) {
+			return found;
+		}
+		return { id: null, name: typeof value === "string" ? value : JSON.stringify(value), color: neutral_tag_color, description: "", known: false };
+	}
+
+	function ticket_tags(ticket) {
+		return Array.isArray(ticket.tags) ? ticket.tags : [];
+	}
+
+	function has_tag(ticket, id) {
+		return ticket_tags(ticket).some(function (value) {
+			return resolve_tag(value).id === id;
+		});
+	}
+
+	function tag_names(ticket) {
+		return ticket_tags(ticket).map(function (value) {
+			return resolve_tag(value).name;
+		});
+	}
+
+	/* --- filters -------------------------------------------------------------------------- */
+
+	function set_options(select, options, value) {
+		select.textContent = "";
+		options.forEach(function (option) {
+			var node = el("option", null, option[1]);
+			node.value = option[0];
+			select.appendChild(node);
+		});
+		select.value = value;
+		if (select.value !== value) {
+			select.value = options.length ? options[0][0] : "";
+		}
+	}
+
+	function distinct(field) {
+		var seen = {};
+		state.tickets.forEach(function (ticket) {
+			if (ticket[field]) {
+				seen[ticket[field]] = true;
+			}
+		});
+		return Object.keys(seen).sort();
+	}
+
+	function fill_filter_options() {
+		var filters = state.filters;
+		set_options($("filter-status"), [["", "All statuses"], ["active", "Active"]]
+			.concat(status_order.map(function (status) { return [status, status_labels[status]]; })), filters.status);
+		set_options($("filter-severity"), [["", "All severities"]]
+			.concat(severity_order.map(function (severity) { return [severity, severity_labels[severity]]; })), filters.severity);
+		set_options($("filter-tag"), [["", "All tags"]]
+			.concat(state.tags.ids.map(function (id) { return [id, state.tags.by_id[id].name]; })), filters.tag);
+		set_options($("filter-owner"), [["", "All owners"]]
+			.concat(distinct("owner_area").map(function (owner) { return [owner, owner]; })), filters.owner);
+		set_options($("filter-target"), [["", "All patches"]]
+			.concat(distinct("target_patch").map(function (target) { return [target, target]; })), filters.target);
+		var sort_options = [];
+		columns.forEach(function (column) {
+			sort_options.push([column.key + ":asc", column.label + (column.key === "updated" ? " (oldest first)" : " (ascending)")]);
+			sort_options.push([column.key + ":desc", column.label + (column.key === "updated" ? " (newest first)" : " (descending)")]);
+		});
+		set_options($("sort-select"), sort_options, state.sort_key + (state.sort_descending ? ":desc" : ":asc"));
+	}
+
+	function read_filters() {
+		state.filters.status = $("filter-status").value;
+		state.filters.severity = $("filter-severity").value;
+		state.filters.tag = $("filter-tag").value;
+		state.filters.owner = $("filter-owner").value;
+		state.filters.target = $("filter-target").value;
+	}
+
+	function passes(ticket, ignore_status) {
+		var filters = state.filters;
+		if (!ignore_status && filters.status) {
+			if (filters.status === "active" ? active_statuses.indexOf(ticket.status) < 0 : ticket.status !== filters.status) {
+				return false;
+			}
+		}
+		if (filters.severity && ticket.severity !== filters.severity) {
+			return false;
+		}
+		// The filter holds a tag id; a ticket matches whether it carries that tag as the id or, unconverted, as the name.
+		if (filters.tag && !has_tag(ticket, filters.tag)) {
+			return false;
+		}
+		if (filters.owner && ticket.owner_area !== filters.owner) {
+			return false;
+		}
+		if (filters.target && ticket.target_patch !== filters.target) {
+			return false;
+		}
+		if (filters.text) {
+			var haystack = (ticket.id + "\n" + ticket.summary + "\n" + (ticket.body || "") + "\n" + tag_names(ticket).join(" ")).toLowerCase();
+			if (haystack.indexOf(filters.text.toLowerCase()) < 0) {
+				return false;
+			}
+		}
+		return true;
+	}
+
+	function active_filter_count() {
+		var filters = state.filters;
+		return ["severity", "tag", "owner", "target"].filter(function (key) { return filters[key]; }).length
+			+ (filters.status && filters.status !== "active" ? 1 : 0);
+	}
+
+	/* --- sorting -------------------------------------------------------------------------- */
+
+	function rank(list, value) {
+		var index = list.indexOf(value);
+		return index < 0 ? list.length : index;
+	}
+
+	function id_number(id) {
+		return parseInt(String(id).replace(/\D/g, ""), 10) || 0;
+	}
+
+	function compare(a, b) {
+		var key = state.sort_key;
+		var result = 0;
+		if (key === "severity") {
+			result = rank(severity_order, a.severity) - rank(severity_order, b.severity);
+		} else if (key === "status") {
+			result = rank(status_order, a.status) - rank(status_order, b.status);
+		} else if (key === "id") {
+			result = id_number(a.id) - id_number(b.id);
+		} else {
+			result = String(a[key] || "").localeCompare(String(b[key] || ""));
+		}
+		if (state.sort_descending) {
+			result = -result;
+		}
+		return result || id_number(a.id) - id_number(b.id);
+	}
+
+	function set_sort(key) {
+		if (state.sort_key === key) {
+			state.sort_descending = !state.sort_descending;
+		} else {
+			state.sort_key = key;
+			state.sort_descending = key === "updated";
+		}
+		$("sort-select").value = state.sort_key + (state.sort_descending ? ":desc" : ":asc");
+		render_list();
+	}
+
+	/* --- pieces --------------------------------------------------------------------------- */
+
+	/* A chip for one value of a ticket's tags. Text and title only: names and descriptions come from files. */
+	function tag_chip(value) {
+		var tag = resolve_tag(value);
+		var chip = el("span", tag.known ? "tag" : "tag tag-unknown", tag.name);
+		chip.style.setProperty("--tag-color", tag.color);
+		if (!tag.known) {
+			chip.title = "Not in tags.json";
+		} else if (tag.description) {
+			chip.title = tag.description;
+		}
+		return chip;
+	}
+
+	function severity_badge(severity) {
+		var badge = el("span", "severity sev-" + severity);
+		badge.appendChild(svg_icon(severity_order.indexOf(severity) >= 0 ? severity : "medium"));
+		badge.appendChild(el("span", "severity-label", severity_labels[severity] || severity));
+		badge.title = "Severity: " + (severity_labels[severity] || severity);
+		return badge;
+	}
+
+	function status_pill(status) {
+		return el("span", "pill st-" + status, status_labels[status] || status);
+	}
+
+	function short_date(timestamp) {
+		return String(timestamp || "").slice(0, 10);
+	}
+
+	/* --- list ----------------------------------------------------------------------------- */
+
+	function render_status_strip() {
+		var strip = $("status-strip");
+		strip.textContent = "";
+		var counts = {};
+		var total = 0;
+		state.tickets.forEach(function (ticket) {
+			if (passes(ticket, true)) {
+				counts[ticket.status] = (counts[ticket.status] || 0) + 1;
+				total += 1;
+			}
+		});
+		var active = active_statuses.reduce(function (sum, status) { return sum + (counts[status] || 0); }, 0);
+		var entries = [["active", "Active", active], ["", "All", total]].concat(status_order.map(function (status) {
+			return [status, status_labels[status], counts[status] || 0];
+		}));
+		entries.forEach(function (entry) {
+			var button = el("button", "count-button");
+			button.type = "button";
+			button.setAttribute("aria-pressed", state.filters.status === entry[0] ? "true" : "false");
+			append(button, [el("span", null, entry[1]), el("b", null, String(entry[2]))]);
+			button.addEventListener("click", function () {
+				state.filters.status = state.filters.status === entry[0] ? "active" : entry[0];
+				$("filter-status").value = state.filters.status;
+				render_list();
+			});
+			strip.appendChild(button);
+		});
+	}
+
+	function render_head() {
+		var head = el("div", "list-head");
+		head.setAttribute("role", "row");
+		columns.forEach(function (column) {
+			var button = el("button", "sort-button" + (state.sort_key === column.key ? " active" : ""), column.label);
+			button.type = "button";
+			button.style.gridArea = column.key === "id" ? "key" : column.key === "owner_area" ? "owner" : column.key;
+			if (state.sort_key === column.key) {
+				button.appendChild(svg_icon(state.sort_descending ? "sort_down" : "sort_up"));
+				button.setAttribute("aria-sort", state.sort_descending ? "descending" : "ascending");
+			}
+			button.addEventListener("click", function () {
+				set_sort(column.key);
+			});
+			head.appendChild(button);
+		});
+		return head;
+	}
+
+	function render_row(ticket) {
+		var row = el("a", "row" + (ticket.id === state.selected ? " selected" : ""));
+		row.href = "#" + ticket.id;
+		row.setAttribute("role", "listitem");
+		row.dataset.id = ticket.id;
+		var summary = el("span", "c-summary");
+		summary.appendChild(el("span", "summary-text", ticket.summary));
+		if (ticket_tags(ticket).length) {
+			append(summary, [append(el("span", "tags"), ticket_tags(ticket).map(tag_chip))]);
+		}
+		var severity = append(el("span", "c-severity"), [severity_badge(ticket.severity)]);
+		var status = append(el("span", "c-status"), [status_pill(ticket.status)]);
+		var updated = el("span", "c-updated muted", short_date(ticket.updated));
+		updated.title = "Updated " + ticket.updated;
+		append(row, [el("span", "c-key", ticket.id), summary, severity, status,
+			el("span", "c-owner muted", ticket.owner_area), updated]);
+		row.addEventListener("click", function () {
+			state.opened_from_list = true;
+		});
+		return row;
+	}
+
+	function render_list() {
+		render_status_strip();
+		var list = $("list");
+		list.textContent = "";
+		var shown = state.tickets.filter(function (ticket) { return passes(ticket, false); }).sort(compare);
+		list.appendChild(render_head());
+		if (!shown.length) {
+			list.appendChild(el("div", "empty", state.tickets.length ? "No tickets match these filters." : "No tickets yet."));
+		}
+		shown.forEach(function (ticket) {
+			list.appendChild(render_row(ticket));
+		});
+		var toggle = $("filter-toggle");
+		var count = active_filter_count();
+		toggle.textContent = count ? "Filters (" + count + ")" : "Filters";
+		toggle.classList.toggle("active", count > 0);
+	}
+
+	/* --- detail --------------------------------------------------------------------------- */
+
+	function render_markdown(text) {
+		var container = el("div", "markdown");
+		var html = window.marked.parse(text || "", { gfm: true, breaks: false });
+		container.innerHTML = window.DOMPurify.sanitize(html, { USE_PROFILES: { html: true } });
+		container.querySelectorAll("table").forEach(function (table) {
+			var wrap = el("div", "table-wrap");
+			table.parentNode.insertBefore(wrap, table);
+			wrap.appendChild(table);
+		});
+		container.querySelectorAll('li > input[type="checkbox"]').forEach(function (box) {
+			box.disabled = true;
+			box.parentNode.classList.add("task");
+		});
+		container.querySelectorAll("a[href]").forEach(function (link) {
+			var href = link.getAttribute("href");
+			if (href.charAt(0) !== "#") {
+				link.target = "_blank";
+				link.rel = "noopener noreferrer";
+			}
+		});
+		link_ticket_ids(container);
+		return container;
+	}
+
+	/* Turn bare mentions of this store's ids (prefix and digits) into links, outside code and existing links. */
+	function link_ticket_ids(root) {
+		var walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+			acceptNode: function (node) {
+				if (!node.nodeValue || node.nodeValue.search(ticket_id_pattern) < 0) {
+					return NodeFilter.FILTER_REJECT;
+				}
+				for (var parent = node.parentNode; parent && parent !== root; parent = parent.parentNode) {
+					if (/^(A|CODE|PRE)$/.test(parent.nodeName)) {
+						return NodeFilter.FILTER_REJECT;
+					}
+				}
+				return NodeFilter.FILTER_ACCEPT;
+			}
+		});
+		var targets = [];
+		while (walker.nextNode()) {
+			targets.push(walker.currentNode);
+		}
+		targets.forEach(function (node) {
+			var text = node.nodeValue;
+			var fragment = document.createDocumentFragment();
+			var last = 0;
+			text.replace(ticket_id_pattern, function (match, offset) {
+				fragment.appendChild(document.createTextNode(text.slice(last, offset)));
+				var link = el("a", null, match);
+				link.href = "#" + match;
+				fragment.appendChild(link);
+				last = offset + match.length;
+				return match;
+			});
+			fragment.appendChild(document.createTextNode(text.slice(last)));
+			node.parentNode.replaceChild(fragment, node);
+		});
+	}
+
+	function meta_item(label, value_node) {
+		return append(el("div", "meta-item"), [el("span", "meta-label", label), append(el("div", "meta-value"), [value_node])]);
+	}
+
+	function links_block(ticket) {
+		var links = ticket.links || {};
+		var groups = [];
+		if ((links.tickets || []).length) {
+			var list = el("ul");
+			links.tickets.forEach(function (id) {
+				var item = el("li");
+				var link = el("a", "mono", id);
+				link.href = "#" + id;
+				item.appendChild(link);
+				var other = find_ticket(id);
+				if (other) {
+					item.appendChild(document.createTextNode(" - " + other.summary));
+				}
+				list.appendChild(item);
+			});
+			groups.push(append(el("div", "links-group"), [el("span", "meta-label", "Tickets"), list]));
+		}
+		[["files", "Files"], ["commits", "Commits"]].forEach(function (kind) {
+			if ((links[kind[0]] || []).length) {
+				var list = el("ul");
+				links[kind[0]].forEach(function (value) {
+					list.appendChild(append(el("li"), [el("code", null, value)]));
+				});
+				groups.push(append(el("div", "links-group"), [el("span", "meta-label", kind[1]), list]));
+			}
+		});
+		return groups.length ? append(el("div", "links"), groups) : null;
+	}
+
+	function detail_bar(ticket_id) {
+		var back = el("button", "back-button");
+		back.type = "button";
+		back.setAttribute("aria-label", "Back to the ticket list");
+		append(back, [svg_icon("back"), el("span", null, "Tickets")]);
+		back.addEventListener("click", go_back);
+		return append(el("div", "detail-bar"), [back, el("span", "detail-key", ticket_id || "")]);
+	}
+
+	function render_detail() {
+		var pane = $("detail");
+		pane.textContent = "";
+		var ticket = state.selected ? find_ticket(state.selected) : null;
+		if (!ticket) {
+			pane.appendChild(detail_bar(state.selected));
+			pane.appendChild(el("div", "placeholder", state.selected
+				? "No ticket " + state.selected + " in .claude/tickets."
+				: "Select a ticket to see it here."));
+			return;
+		}
+		pane.appendChild(detail_bar(ticket.id));
+		var detail = el("article", "detail");
+		var tags = append(el("span", "tags"), ticket_tags(ticket).map(tag_chip));
+		var created = el("span", null, short_date(ticket.created));
+		created.title = ticket.created;
+		var updated = el("span", null, short_date(ticket.updated));
+		updated.title = ticket.updated;
+		var meta = append(el("div", "meta"), [
+			meta_item("Status", status_pill(ticket.status)),
+			meta_item("Severity", severity_badge(ticket.severity)),
+			meta_item("Owner", el("span", null, ticket.owner_area)),
+			meta_item("Target patch", el("span", null, ticket.target_patch)),
+			meta_item("Author", el("span", null, ticket.author)),
+			meta_item("Created", created),
+			meta_item("Updated", updated),
+			ticket_tags(ticket).length ? meta_item("Tags", tags) : null
+		]);
+		append(detail, [el("div", "detail-key", ticket.id), el("h1", null, ticket.summary), meta,
+			links_block(ticket), render_markdown(ticket.body)]);
+		pane.appendChild(detail);
+		pane.scrollTop = 0;
+		document.title = ticket.id + " - " + page_title;
+	}
+
+	/* --- routing: the hash selects a ticket, so a link can point at one ------------------- */
+
+	function route() {
+		var match = hash_id_pattern.exec(window.location.hash);
+		state.selected = match ? match[1] : null;
+		document.body.classList.toggle("show-detail", !!state.selected);
+		if (!state.selected) {
+			document.title = page_title;
+			state.opened_from_list = false;
+		}
+		render_list();
+		render_detail();
+		var row = document.querySelector('.row[data-id="' + state.selected + '"]');
+		if (row && !single_view_query.matches) {
+			row.scrollIntoView({ block: "nearest" });
+		}
+	}
+
+	function go_back() {
+		if (state.opened_from_list) {
+			window.history.back();
+		} else {
+			window.location.hash = "";
+		}
+	}
+
+	function render_all() {
+		route();
+	}
+
+	/* --- filter sheet (phone) ------------------------------------------------------------- */
+
+	function set_sheet(open) {
+		document.body.classList.toggle("filters-open", open);
+		$("sheet-backdrop").hidden = !open;
+		$("filter-toggle").setAttribute("aria-expanded", open ? "true" : "false");
+	}
+
+	/* --- wiring --------------------------------------------------------------------------- */
+
+	function init() {
+		// ?theme=light|dark forces a theme for this visit (screenshots, a shared link) without storing it.
+		var forced = new URLSearchParams(window.location.search).get("theme");
+		apply_theme(forced === "light" || forced === "dark" ? forced : stored_theme() === "light" ? "light" : "dark");
+		$("theme-button").addEventListener("click", toggle_theme);
+		$("refresh-button").appendChild(svg_icon("refresh"));
+		$("refresh-button").addEventListener("click", load);
+		["filter-status", "filter-severity", "filter-tag", "filter-owner", "filter-target"].forEach(function (id) {
+			$(id).addEventListener("change", function () {
+				read_filters();
+				render_list();
+			});
+		});
+		$("sort-select").addEventListener("change", function () {
+			var parts = $("sort-select").value.split(":");
+			state.sort_key = parts[0];
+			state.sort_descending = parts[1] === "desc";
+			render_list();
+		});
+		$("search").addEventListener("input", function () {
+			state.filters.text = $("search").value.trim();
+			render_list();
+		});
+		$("filter-toggle").addEventListener("click", function () { set_sheet(true); });
+		$("filter-done").addEventListener("click", function () { set_sheet(false); });
+		$("sheet-backdrop").addEventListener("click", function () { set_sheet(false); });
+		$("filter-clear").addEventListener("click", function () {
+			state.filters = { status: "active", severity: "", tag: "", owner: "", target: "", text: state.filters.text };
+			fill_filter_options();
+			render_list();
+		});
+		document.addEventListener("keydown", function (event) {
+			if (event.key === "Escape") {
+				if (document.body.classList.contains("filters-open")) {
+					set_sheet(false);
+				} else if (state.selected && single_view_query.matches) {
+					go_back();
+				}
+			}
+		});
+		window.addEventListener("hashchange", route);
+		// Coming back to the app (phone unlock, tab switch) picks up edited tickets.
+		document.addEventListener("visibilitychange", function () {
+			if (document.visibilityState === "visible") {
+				load();
+			}
+		});
+		load();
+		connect_live();
+	}
+
+	init();
+}());

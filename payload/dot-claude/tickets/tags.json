@@ -1,0 +1,15 @@
+{
+  "format": 2,
+  "next_id": 10,
+  "tags": {
+    "1": { "name": "bug", "color": "#e5484d", "description": "Behaves wrongly; not a design question." },
+    "2": { "name": "cleanup", "color": "#808080", "description": "Dead code, dead data, structure; no behaviour change intended." },
+    "3": { "name": "core", "color": "#33904f", "description": "Example area tag: the project's main code. Rename it or replace it with your own areas." },
+    "4": { "name": "docs", "color": "#3b82c4", "description": "A doc is wrong, stale or missing." },
+    "5": { "name": "peer", "color": "#c7711a", "description": "Example tag for an issue another project's session sent; use peer_<project> per sender if you need to tell them apart." },
+    "6": { "name": "performance", "color": "#a87a0a", "description": "Timing, hitches, cost." },
+    "7": { "name": "test", "color": "#8e5bc9", "description": "Test setup, test kits, verification evidence." },
+    "8": { "name": "tooling", "color": "#2b8fa3", "description": "Scripts and tools." },
+    "9": { "name": "ui", "color": "#c257b0", "description": "Example area tag: screens, dialogs, widgets, layout." }
+  }
+}

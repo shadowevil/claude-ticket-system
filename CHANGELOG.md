@@ -2,6 +2,15 @@
 
 Versions use x.y.z numbering (user rule, 2026-09-30): **minor** means the configuration or a JSON structure changed, **patch** is anything smaller such as UI updates and fixes, and **major** is kept for large progress, which is not defined yet. Each entry lists the items it ships, by their numbers (`B<n>`) in the maintainer's internal backlog, and its upgrade steps. The steps in full are in `docs/UPGRADING.md`.
 
+## [1.3.1-hotfix] - 2026-10-21
+
+**A hotfix to the 1.3.1 public README only: its prompt is easy to copy.** This is not a new release: `VERSION` stays 1.3.1, and no file of the release payload changed (so no configuration or JSON structure change either).
+
+- **The public README's prompt (B56):** `README.md` is a title, one line saying where to paste the prompt, and the whole prompt, wording unchanged, in one fenced `markdown` code block (a four-backtick fence, so nothing inside can close it). GitHub shows a copy button on the block, and the copied text is the raw Markdown.
+- **Ships:** B56.
+
+**Upgrade:** nothing to do. The change is the public repo's README only; your copy, your skill and your `VERSION` row stay as they are.
+
 ## [1.3.1] - 2026-10-21
 
 **Portable, and public.** The ticket system now works from a clone of its public GitHub repo, `https://github.com/shadowevil/claude-ticket-system`, on any machine and for any user. A **patch**: no configuration or JSON structure change (user rule, 2026-09-30: "Patch should be for smaller changes"). The steps are in `docs/UPGRADING.md`, per-release notes, 1.3.1.

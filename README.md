@@ -1,7 +1,8 @@
-Paste this into Claude Code, opened in your project. (Or tell it: "Adopt the ticket system by following the README of https://github.com/shadowevil/claude-ticket-system".)
+# Claude ticket system
 
----
+Copy the prompt below into Claude Code, opened in your project, and send it. (Or tell it: "Adopt the ticket system by following the README of https://github.com/shadowevil/claude-ticket-system".)
 
+````markdown
 Install the Claude ticket system in this project, or upgrade the copy it already has. The ticket system is a JSON ticket board kept in the repo (`.claude/tickets/`): a stdlib-Python CLI that is the only writer, an authoring tool for agents, a read-only web viewer on localhost, and a `tickets` skill that tells Claude sessions how to use it. Work through these steps in order.
 
 1. **Check the requirements: git, and Python 3.7 or newer (stdlib only).** Run `python --version` (or `python3 --version`; if only `python3` works, use it wherever the docs say `python`) and `git --version`. If both are there and Python is 3.7 or newer, go on and upgrade nothing; on Windows you may mention that 3.8 or newer is recommended (see `docs/ADOPTING.md` in the repo, once cloned), but act on it only if I ask. If either is missing, or Python is older than 3.7, stop and tell me; install or upgrade nothing unless I agree.
@@ -27,3 +28,4 @@ Install the Claude ticket system in this project, or upgrade the copy it already
 6. **Report.** Tell me: the version now installed, the values used, each step and whether its check passed, the path of the smoke-test ticket (adopting), and the command that starts the viewer. Ask me before any commit or push.
 
 If the ticket system itself misbehaves, or a step in its docs is wrong, don't patch the copy. Draft an issue for https://github.com/shadowevil/claude-ticket-system/issues: what you saw against what you expected, the steps to reproduce, and the version from `SRC/VERSION`, with no private paths and no ticket text I haven't approved. Show it to me, and post it only with my OK.
+````

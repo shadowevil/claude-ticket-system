@@ -4,6 +4,10 @@
 
 *Part of the upgrade guide, `../UPGRADING.md`: read its opening first, for `SRC`, `REPO`, `SCRATCH` and `CLI_DIR`. A bare "sect. N" here is that guide's sect. N, and its index names the file. `ADOPTING.md` is `../ADOPTING.md`, an index too.*
 
+## 1.3.1-hotfix (2026-10-21)
+
+A hotfix to the 1.3.1 public repo's `README.md` only: its prompt is one fenced `markdown` block, easy to copy (`CHANGELOG.md` [1.3.1-hotfix]). The version stays 1.3.1 and no file of the release payload changed, so adopters do nothing.
+
 ## 1.3.1 (2026-10-21)
 
 Portable docs, a public GitHub repo, and fixes (`CHANGELOG.md` [1.3.1]). There is no configuration or JSON structure change, so it's a patch. From 1.3.0, follow sect. 3; from a 1.2.x copy, follow sect. 7 with 1.3.1 in place of 1.3.0 (its step 2), then this note.

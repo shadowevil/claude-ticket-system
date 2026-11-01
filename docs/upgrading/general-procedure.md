@@ -2,7 +2,7 @@
 
 *Sect. 3 of the upgrade guide, `../UPGRADING.md`: read its opening first, for `SRC`, `REPO`, `SCRATCH` and `CLI_DIR`. A bare "sect. N" here is that guide's sect. N, and its index names the file. `ADOPTING.md` is `../ADOPTING.md`, an index too.*
 
-**From 1.5.0 on, on the maintainer's machine, use the viewer's one-click update instead (sect. 11);** this procedure is for copies before 1.5.0 (to 1.5.0 itself, follow sect. 10) and for copies without `update_source`.
+**From 1.5.0 on, on the maintainer's machine, use the viewer's one-click update instead (sect. 11);** this procedure is for copies before 1.5.0 (to the newest 1.5.x, follow sect. 10) and for copies without `update_source`.
 
 This is the general procedure. For a copy on 1.0.0, follow sect. 4 instead: it adds the one-time steps of the move to config. Then go on to 1.2.0 with sect. 5. To 1.3.0, follow sect. 7: it moves your tags and tickets to numbered tags. From 1.3.0 to 1.3.1, follow this procedure with the 1.3.1 per-release note (`release-notes.md`).
 

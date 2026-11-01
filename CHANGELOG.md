@@ -2,6 +2,16 @@
 
 Versions use x.y.z numbering (user rule, 2026-09-30): **minor** means the configuration or a JSON structure changed, **patch** is anything smaller such as UI updates and fixes, and **major** is kept for large progress, which is not defined yet. Each entry lists the items it ships, by their numbers (`B<n>`) in the maintainer's internal backlog, and its upgrade steps. The steps in full are in `docs/UPGRADING.md`.
 
+## [1.5.2] - 2026-11-01
+
+**Fixes from the pre-broadcast upgrade test.** A **patch**: no configuration or JSON structure change.
+
+- The 1.4.x upgrade guide (`docs/upgrading/1.4.x-to-1.5.0.md`) reads `<new>`, the newest 1.5.x, instead of a fixed 1.5.0; it says to restart the viewer after setting `update_source` (also in `self-update.md`), what `validate` prints, and to expect a few rules-doc merge conflicts.
+- The update's changed list and the commit `ACTION` line give repository-relative paths (`src/tools/tickets/app.js`) and name `.claude/tickets/README.md`.
+- The update dialog no longer repeats the `Agents:` lines below the changelog, which already shows them.
+
+Agents: none
+
 ## [1.5.1] - 2026-11-01
 
 **Docs only.** The `update_source` example in `docs/adopting/steps.md` and `docs/upgrading/1.4.x-to-1.5.0.md` named the maintainer's local repository; it now reads `C:\\path\\to\\source-repo\\ticket-system`. A **patch**: no code, configuration or JSON structure change, and nothing to do for a copy on 1.5.0.

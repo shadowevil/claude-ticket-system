@@ -938,10 +938,7 @@
 				// The changelog comes from the source's manifests: rendered like a ticket body, through DOMPurify.
 				nodes.push(render_markdown(note.changelog));
 			}
-			if (note.agents && note.agents.length) {
-				nodes.push(el("strong", null, "For agents:"));
-				nodes.push(text_list(note.agents, false));
-			}
+			// The entry's "Agents:" lines are part of the changelog text above, so they are not listed again.
 		});
 		nodes.push(el("p", "update-note", "The update replaces the tool files and the schema (your enums and id patterns " +
 			"are kept), restarts the viewer and runs validate; if anything fails, the backup is put back. The skill, the " +

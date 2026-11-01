@@ -4,6 +4,10 @@
 
 *Part of the upgrade guide, `../UPGRADING.md`: read its opening first, for `SRC`, `REPO`, `SCRATCH` and `CLI_DIR`. A bare "sect. N" here is that guide's sect. N, and its index names the file. `ADOPTING.md` is `../ADOPTING.md`, an index too.*
 
+## 1.5.2 (2026-11-01)
+
+Docs and update messages (`CHANGELOG.md` [1.5.2]). A copy on 1.4.x installs the newest 1.5.x by hand with sect. 10, reading `<new>` there. From 1.5.0 or 1.5.1 the viewer offers it as an update; nothing else to do. The update's changed list now gives repository-relative paths and names `.claude/tickets/README.md`.
+
 ## 1.5.1 (2026-11-01)
 
 Docs only (`CHANGELOG.md` [1.5.1]): a generic `update_source` example path. Nothing to do; the viewer offers it as an update.

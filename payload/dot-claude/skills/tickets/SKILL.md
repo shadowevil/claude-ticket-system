@@ -16,7 +16,7 @@ and versions. The project owns its board: its tickets, `config.json`, tags and r
 
 | setting | this project |
 |---|---|
-| Ticket system version | 1.5.1 |
+| Ticket system version | 1.5.2 |
 | CLI | `python <CLI_DIR>/tickets.py` |
 | Store | `.claude/tickets/` (`config.json` for the id prefix, first number, name, viewer port and tag groups; `tags.json`, the tag store of numbered tags; `ticket.schema.json` for fields and enums) |
 | Store, absolute (for replies to a peer) | `<REPO>\.claude\tickets\` |

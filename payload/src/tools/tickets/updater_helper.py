@@ -184,7 +184,7 @@ class helper(object):
 				return 1
 			self.status("running", step="staging")
 			changed = [item["shown"] for item in self.plan.get("copies", [])] + ["{} (deleted)".format(item["shown"])
-				for item in self.plan.get("deletions", [])]
+				for item in self.plan.get("deletions", [])] + [updater.readme_shown]
 			try:
 				actions = updater.stage(self.plan, log)
 			except Exception as error:  # noqa: BLE001 - the update itself succeeded; staging is reported, not undone

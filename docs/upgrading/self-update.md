@@ -1,12 +1,12 @@
 # 11. The viewer's one-click update (1.5.0 and later)
 
-*Sect. 11 of the upgrade guide, `../UPGRADING.md`: read its opening first, for `SRC`, `REPO`, `SCRATCH` and `CLI_DIR`. A copy before 1.5.0 updates by hand once more, to 1.5.0 (sect. 10).*
+*Sect. 11 of the upgrade guide, `../UPGRADING.md`: read its opening first, for `SRC`, `REPO`, `SCRATCH` and `CLI_DIR`. A copy before 1.5.0 updates by hand once more, to the newest 1.5.x (sect. 10).*
 
 From 1.5.0, on the maintainer's machine, a release is installed from the viewer: a badge, a confirm dialog, one click. Nothing goes over the network: the source is the maintainer's `ticket-system/` folder on this PC, read through its release tags (user, 2026-11-01: "It doesn't have to be overly complex - it runs locally only").
 
 ## Turning it on, and off
 
-- **On:** `update_source` in `.claude/tickets/config.json`, the absolute path of the maintainer's `ticket-system/` folder (`ADOPTING.md` step 4). The viewer needs `git` on PATH: it reads the release tags.
+- **On:** `update_source` in `.claude/tickets/config.json`, the absolute path of the maintainer's `ticket-system/` folder (`ADOPTING.md` step 4). The viewer needs `git` on PATH: it reads the release tags. **Restart the viewer after adding or changing `update_source`:** a running viewer ignores the change, `/api/update` stays `current`, and apply returns 409.
 - **Off (the opt-out):** leave `update_source` out, or set it to `""`. The viewer then shows no badge, and `POST /api/update/apply` answers 403 whatever it carries. A value that is not a string stops `serve.py` with an error naming the key.
 - `GET /api/update` tells you what the viewer sees: `"state"` is `off`, `current`, `available` (with `"latest"` and the release notes), `unknown` (no `<CLI_DIR>/VERSION`: a copy before 1.5.0) or `unavailable` (with a `"reason"`: the folder, its `releases/` or git cannot be read). The viewer logs the same once at start (`build/tickets/serve.log`).
 

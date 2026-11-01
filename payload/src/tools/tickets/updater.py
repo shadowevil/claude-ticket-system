@@ -563,6 +563,17 @@ def prepare(repo, cli_dir, config, version, viewer):
 	return helper
 
 
+readme_shown = ".claude/tickets/README.md"
+
+
+def shown_path(repo, target):
+	"""A path as the user sees it in the changed list: relative to the repository, forward slashes."""
+	try:
+		return os.path.relpath(target, repo).replace("\\", "/")
+	except ValueError:  # another drive on Windows
+		return str(target).replace("\\", "/")
+
+
 def prepare_steps(repo, cli_dir, config, version, viewer, paths, work):
 	installed = installed_version(cli_dir)
 	write_status(paths, "running", fresh=True, version=version, installed=installed, step="exporting",
@@ -648,14 +659,14 @@ def prepare_steps(repo, cli_dir, config, version, viewer, paths, work):
 		source_file = payload_path(export_dir, relative)
 		if os.path.isfile(target) and same_bytes(source_file, target):
 			continue
-		copies.append({"source": source_file, "target": target, "shown": relative[len(tool_prefix):]})
+		copies.append({"source": source_file, "target": target, "shown": shown_path(repo, target)})
 	if merged_path and not same_bytes(merged_path, project_schema_path):
-		copies.append({"source": merged_path, "target": project_schema_path, "shown": ".claude/tickets/ticket.schema.json"})
-	copies.sort(key=lambda item: item["shown"] == "VERSION")
+		copies.append({"source": merged_path, "target": project_schema_path, "shown": shown_path(repo, project_schema_path)})
+	copies.sort(key=lambda item: os.path.basename(item["target"]) == "VERSION")
 	for relative in replaced_tool_files(base):
 		target = tool_target(cli_dir, relative)
 		if relative not in release["files"] and os.path.isfile(target):
-			deletions.append({"target": target, "shown": relative[len(tool_prefix):]})
+			deletions.append({"target": target, "shown": shown_path(repo, target)})
 	for index, item in enumerate(copies + deletions):
 		if os.path.isfile(item["target"]):
 			backup = os.path.join(backup_dir, "{:03d}-{}".format(index, os.path.basename(item["target"])))
@@ -672,7 +683,7 @@ def prepare_steps(repo, cli_dir, config, version, viewer, paths, work):
 		"created": utc_now()}
 	write_json_atomically(os.path.join(work, "plan.json"), plan)
 	write_status(paths, "running", step="handing off", changed=[item["shown"] for item in copies] +
-		["{} (deleted)".format(item["shown"]) for item in deletions])
+		["{} (deleted)".format(item["shown"]) for item in deletions] + [readme_shown])
 	pid = start_helper(helper_source, os.path.join(work, "plan.json"), work)
 	hand_lock(paths, pid, version, work)
 	return pid

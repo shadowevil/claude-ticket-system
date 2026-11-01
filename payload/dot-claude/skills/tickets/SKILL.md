@@ -16,7 +16,7 @@ and versions. The project owns its board: its tickets, `config.json`, tags and r
 
 | setting | this project |
 |---|---|
-| Ticket system version | 1.4.2 |
+| Ticket system version | 1.5.1 |
 | CLI | `python <CLI_DIR>/tickets.py` |
 | Store | `.claude/tickets/` (`config.json` for the id prefix, first number, name, viewer port and tag groups; `tags.json`, the tag store of numbered tags; `ticket.schema.json` for fields and enums) |
 | Store, absolute (for replies to a peer) | `<REPO>\.claude\tickets\` |
@@ -226,6 +226,25 @@ system, reports it to the PM. Where Settings sets a rule for a peer (such as ask
      - set the version row;
      - tell the maintainer the version we now run (Ticket Master on the maintainer's machine, else the user), and
        close the ticket on that evidence.
+   - **From 1.5.0, where `config.json` sets `update_source`,** the upgrade is the viewer's update badge: the user
+     clicks it, and the viewer installs the tool files and the schema itself (After an update, below). The steps
+     above still hold for what it leaves: the reviewed skill and hooks, the version row, the commit, telling the
+     maintainer.
+
+## After an update
+
+From 1.5.0 the viewer can update the ticket system in one click. Agents only ever deal with the ticket JSON, through
+the CLI; what changed for them is written in the agents README, `.claude/tickets/README.md`, beside the store.
+
+1. **When the CLI prints `tickets: store updated to <version> - see .claude/tickets/README.md`** (once, on
+   stderr), read that README's newest section before the next write: new CLI flags, statuses or fields, and how to
+   use them. Values still come from the store (Before any write, step 3).
+2. **`ACTION` lines are for this copy**, such as a staged skill to review and install, a merged rules doc with
+   conflicts, or changed files to commit. Act on one only if your role allows it (the PM decides installs and
+   commits; a skill or hook goes through a separate read-only review first, by the global rule). Otherwise, or when
+   unsure, tell the user, or the PM if you are a dispatched agent, and go on with your task.
+3. Never edit the README by hand, and never install a staged file from `build/tickets/staged/` without its review.
+   The updater commits nothing.
 
 ## Agents
 

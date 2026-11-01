@@ -30,15 +30,18 @@ Contents: 1. where tickets live - 2. the fields - 3. filing and updating (the CL
 | `.claude/tickets/config.json` | the per-project settings (below): the CLI and viewer read everything project-specific from it, so the code is the same in every project |
 | `.claude/tickets/tags.json` | the tag store: every tag, numbered, with its name, colour and description (sect. 3) |
 | `.claude/tickets/tags.json.lock` | present only while `author.py` changes the tag store (sect. 3); git-ignored |
-| `.claude/tickets/ticket.schema.json` | the JSON Schema every ticket must satisfy - the one spec for the fields |
+| `.claude/tickets/ticket.schema.json` | the JSON Schema every ticket must satisfy - the one spec for the fields. Its `x-project-owned` list names the values that are ours (the id patterns and the four enums), which an update keeps |
+| `.claude/tickets/README.md` | the agents README: what changed for agents, per release, and `ACTION` lines for this copy; rewritten by the viewer's one-click update (sect. 4), first written by `tickets.py readme`. Read it when the CLI says `tickets: store updated to ...` |
 | `<CLI_DIR>/tickets.py` | the CLI: the only way tickets are created and edited |
 | `<CLI_DIR>/author.py` | the authoring tool for agents: the tag store, the tag groups, drafts and new tickets (sect. 3). It writes through `tickets.py` |
 | `<CLI_DIR>/serve.py` | the read-only viewer service (sect. 4) |
 | `<CLI_DIR>/{index.html,app.js,style.css,manifest.webmanifest,icons/}` | the viewer page; no build step |
 | `<CLI_DIR>/make_icons.py` | bakes the three icons from `icon_text` on `icon_color` (stdlib only) |
+| `<CLI_DIR>/VERSION` | the release this copy is at |
+| `<CLI_DIR>/{updater.py,updater_helper.py,schema_merge.py}` | the viewer's one-click update (sect. 4) and its schema merge |
 | `<CLI_DIR>/lib/marked/`, `<CLI_DIR>/lib/dompurify/` | the vendored markdown renderer and sanitiser the page loads, each with its `LICENSE` and `refresh.md` |
 | `.claude/hooks/tickets/` | the optional ticket-system hooks, if installed (sect. 6); log-only |
-| `build/tickets/` | the viewer's pid file and log; machine-local, git-ignored |
+| `build/tickets/` | the viewer's pid file and log, the updater's work area, backup and status (`update/`), and the staged skill, hooks and rules doc (`staged/<version>/`); machine-local, git-ignored |
 
 **`config.json` keys.** Unknown keys are ignored, so a project may keep its own.
 
@@ -57,6 +60,7 @@ Contents: 1. where tickets live - 2. the fields - 3. filing and updating (the CL
 | `icon_color` | no: the icons' background, `#rrggbb` in either case. A bad value stops the CLI, the viewer and `make_icons.py` with an error naming the key | `#007acc` (Visual Studio blue) |
 | `tool_dir` | no: the tool folder, relative to the repo root (inside the project, not the root, not `.claude/tickets`). The optional hooks guard it, and the source's `release.py identify` compares it | the hooks: the folder of their own `viewer_script` key if you set one, else the first of `tools/tickets` and `src/tools/tickets` that holds `tickets.py`. `identify`: the first of `src/tools/tickets` and `tools/tickets` that holds it |
 | `tag_groups` | no: the tags every ticket must carry, as a list of `{"name", "tags": [tag names], "min", "max"}` (sect. 3) | no groups |
+| `update_source` | no: the absolute path of the maintainer's `ticket-system/` folder on this machine, for the viewer's one-click update (sect. 4). A non-string stops the viewer with an error naming the key | updates off: no badge |
 
 Files are UTF-8, pretty-printed (2 spaces), LF, in a fixed field order - the CLI writes them that way, so every
 ticket diffs alike. They are tracked in git like any doc.
@@ -264,12 +268,24 @@ python <CLI_DIR>/serve.py --foreground      run in this console, Ctrl+C to stop
   never stops anything by name; a stale pid file, or one whose PID a later process has taken, is cleared.
 - **First `--all-interfaces` start: Windows asks once to let python.exe through the firewall. Choose Private networks only.**
   Never change firewall settings from a script or agent. The default bind is localhost, so tests raise no prompt.
-- **Read-only.** GET only (everything else is 405). The whole site is a fixed route table: `/`, the page files,
+- **Read-only.** GET only (everything else is 405), but for the one update request below. The whole site is a fixed
+  route table: `/`, the page files,
   the three icons, `/lib/marked.min.js`, `/lib/purify.min.js` (served from `<CLI_DIR>/lib/`), `/api/tickets`
   (every ticket, the tag store keyed by id, its `tag_format`, the `tag_groups` and any `problems`, read fresh
   from disk per request, `Cache-Control: no-store`), `/api/events` (the
-  live stream below) and `/api/health`. Anything else is 404 - no directory listing and no path traversal (a path
-  is matched exactly, never joined). It sends a Content-Security-Policy allowing scripts only from itself.
+  live stream below), `/api/health`, `/api/update` and `/api/update/status`. Anything else is 404 - no directory
+  listing and no path traversal (a path is matched exactly, never joined). It sends a Content-Security-Policy
+  allowing scripts only from itself, and never a CORS header.
+- **The one-click update** (1.5.0; the source's `docs/upgrading/self-update.md`). With `update_source` set, the
+  page shows a badge, "Update x.y.z", when a newer release is tagged there; a click shows its changelog and asks to
+  confirm. The update exports the release from its tag, checks every file against its manifest, merges the schema
+  (our `x-project-owned` values kept; a local edit elsewhere stops it), backs up, replaces the tool files and the
+  schema, runs `validate` and restarts the viewer; any failure puts the backup back. The skill, the hooks and this
+  doc are only staged in `build/tickets/staged/<version>/` for review, and nothing is committed: the PM reviews and
+  commits. The one POST, `/api/update/apply`, is accepted only from this PC, with `Host` and `Origin` naming
+  `127.0.0.1:<PORT>`, `localhost:<PORT>` or `[::1]:<PORT>` and the page's token (made at start, memory only, never given to a LAN
+  client); anything else is 403. Without `update_source` there is no badge and the POST is always 403. A
+  `serve.py` start after an update that was cut off part-way puts the backup back first.
 - **Live updates**: `/api/events` is a server-sent-events stream. Each open page's stream checks the ticket folder
   every second (a digest of file names, sizes and mtimes) and pushes a `tickets` event on connect and on every
   change; the page reloads when the version differs from the one it holds. The refresh icon turns green while the
@@ -398,7 +414,9 @@ and the running viewer. Nobody else edits them.
   `in_progress` for the upgrade, and follows the source's `docs/UPGRADING.md`: take the release whole, keep our
   configuration, have a skill or hook change reviewed by a separate read-only agent before install, record the
   version in the skill's Settings, commit, and tell the maintainer the version we now run (Ticket Master on the
-  maintainer's machine, else the user).
+  maintainer's machine, else the user). **From 1.5.0, with `update_source` set,** the upgrade is the viewer's
+  badge (sect. 4): the user clicks it; the PM then works through `.claude/tickets/README.md`'s `ACTION` lines
+  (the staged skill, hooks and doc, reviewed before install), commits, and tells the maintainer.
 - **Hooks** (optional). Where installed, the ticket-system hooks live in `.claude/hooks/tickets/`, write their
   logs to `build/hooks/tickets/`, and only log; they never block. One of them (T2) looks for an `in_progress` or
   `in_review` ticket whose provenance line names `Ticket Master` before a write into the tool's source. Installing them in a project is that project's

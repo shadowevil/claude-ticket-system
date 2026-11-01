@@ -4,6 +4,21 @@
 
 *Part of the upgrade guide, `../UPGRADING.md`: read its opening first, for `SRC`, `REPO`, `SCRATCH` and `CLI_DIR`. A bare "sect. N" here is that guide's sect. N, and its index names the file. `ADOPTING.md` is `../ADOPTING.md`, an index too.*
 
+## 1.5.1 (2026-11-01)
+
+Docs only (`CHANGELOG.md` [1.5.1]): a generic `update_source` example path. Nothing to do; the viewer offers it as an update.
+
+## 1.5.0 (2026-11-01)
+
+The viewer's one-click update (`CHANGELOG.md` [1.5.0]; the maintainer sets the date at release). The schema and `config.json` structures change and the viewer gains API routes, so it's a minor, but no data moves. From 1.4.x, follow sect. 10; from a 1.3.x copy, sect. 8 (minus its rules-doc step), then sect. 10. **It is the last manual upgrade:** later releases install from the viewer (sect. 11).
+- **The tool folder:** four new files, `VERSION`, `updater.py`, `updater_helper.py` and `schema_merge.py`, and five changed since 1.4.2: `tickets.py`, `serve.py`, `app.js`, `index.html` and `style.css`. Copy everything in `PAYLOAD/src/tools/tickets/` except `icons/`. Never copy `icons/`, and don't re-bake.
+- **The schema gains `x-project-owned`** (B65): merge it with `schema_merge.py --base <your release's schema>` (sect. 10 step 6). Your enums and id patterns are kept; a local edit elsewhere is reported, not merged.
+- **`config.json`** may carry `update_source` (B65), the maintainer's `ticket-system/` folder on this machine; absent, updates are off. The example `config.json` is unchanged.
+- **`.gitignore`** must hold `build/tickets/` (the updater's work area, backups and staged files).
+- **The agents README,** `.claude/tickets/README.md`: write the first with `tickets.py readme`, and commit it.
+- **The skill changed outside its rows** (its "After an update" section). Take it whole, put your Settings rows back, set the version row to `1.5.0`, and have it reviewed before install. **The rules doc** gains `update_source`, the README and the updater's files (sect. 1), and the badge and routes (sect. 4, 6); merge it with `merge-doc`.
+- **The hooks:** unchanged.
+
 ## 1.4.2 (2026-11-01)
 
 1.4.1 again, with the rules-doc merge rebuilt before it was published (`CHANGELOG.md` [1.4.2]). 1.4.1 was never published, so a copy on 1.4.0 or 1.3.x goes straight to 1.4.2: follow sect. 9, reading `1.4.1` there as 1.4.2, and the 1.4.1 note below. There is no configuration or JSON structure change, so it's a patch.

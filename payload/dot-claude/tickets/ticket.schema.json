@@ -3,6 +3,14 @@
   "$id": "ticket.schema.json",
   "title": "Ticket",
   "description": "One ticket per file, .claude/tickets/<id>.json. Edit with tickets.py in the tool folder (src/tools/tickets or tools/tickets); rules in .claude/docs/tickets.md. tickets.py validate enforces this schema plus the cross-file checks a schema cannot express (file name = id, tags held by the tag store tags.json, the tag groups in config.json, ticket links resolve, no ticket links to itself, a block is listed on both tickets).",
+  "x-project-owned": [
+    "/properties/id/pattern",
+    "/$defs/ticket_ids/items/pattern",
+    "/properties/status/enum",
+    "/properties/severity/enum",
+    "/properties/owner_area/enum",
+    "/properties/author/enum"
+  ],
   "type": "object",
   "additionalProperties": false,
   "required": [

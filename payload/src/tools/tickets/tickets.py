@@ -17,6 +17,10 @@ tool for agents (tag store, tag groups, drafts, migration); it writes through th
     python <CLI_DIR>/tickets.py validate
     python <CLI_DIR>/tickets.py import <file.json> [--dry-run]
     python <CLI_DIR>/tickets.py import --abort-interrupted
+    python <CLI_DIR>/tickets.py readme
+
+readme writes .claude/tickets/README.md, the "what changed for agents" file the viewer's one-click update rewrites
+(updater.py), when it is missing. After an update, the first run prints once to stderr where it is (readme_pointer).
 
 --tags, --add-tag and --remove-tag take tag names or ids; list and show print names. Tag groups (config.json
 tag_groups, load_tag_groups) say how many tags of a set a ticket must carry; new, set and import refuse a ticket
@@ -1101,6 +1105,7 @@ def pattern_found(pattern, value):
 
 
 def schema_errors(schema_root, node, value, where):
+	# Only the keywords tested below count: any other, "x-project-owned" (read by the updater) included, is ignored.
 	node = resolve_ref(schema_root, node)
 	errors = []
 	expected = node.get("type")
@@ -2642,10 +2647,59 @@ def build_parser():
 		"files of a killed new or set, and of a killed tag store write (tags.store-<pid>.tmp). Refuses while that "
 		"import's process runs; takes no file")
 	importing.set_defaults(handler=command_import)
+
+	readme = commands.add_parser("readme", help="write .claude/tickets/README.md, the agents README, when it is missing")
+	readme.set_defaults(handler=command_readme)
 	return parser
 
 
+def readme_pointer():
+	"""After the viewer's one-click update (B65), say once, on stderr, where the agents README is: when
+	.claude/tickets/README.md exists and build/tickets/readme-seen does not hold <CLI_DIR>/VERSION. Then it does. The
+	updater's own runs (its validate) set TICKETS_UPDATER, so they never use the notice up."""
+	if os.environ.get("TICKETS_UPDATER"):
+		return
+	# Where updater.state_paths writes it: always the repository's store folder, whatever folder a viewer serves
+	# (serve.py --data-dir moves tickets_dir in its own process only).
+	readme = os.path.join(repo_root, ".claude", "tickets", "README.md")
+	seen_path = os.path.join(repo_root, "build", "tickets", "readme-seen")
+	try:
+		with open(os.path.join(script_dir, "VERSION"), "r", encoding="utf-8") as handle:
+			version = handle.read(64).strip()
+	except OSError:
+		return
+	if not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", version) or not os.path.isfile(readme):
+		return
+	try:
+		with open(seen_path, "r", encoding="utf-8") as handle:
+			if handle.read(64).strip() == version:
+				return
+	except OSError:
+		pass
+	sys.stderr.write("tickets: store updated to {} - see .claude/tickets/README.md\n".format(version))
+	try:
+		os.makedirs(os.path.dirname(seen_path), exist_ok=True)
+		with open(seen_path, "w", encoding="utf-8", newline="\n") as handle:
+			handle.write(version + "\n")
+	except OSError:
+		pass
+
+
+def command_readme(args):
+	"""Write .claude/tickets/README.md, the agents README the updater keeps, for the installed release when it is
+	missing (the first one, after a manual install of 1.5.0)."""
+	import updater
+	try:
+		path, written = updater.write_first_readme(repo_root, script_dir, config)
+	except (OSError, ValueError) as error:
+		raise ticket_error("cannot write the README: {}".format(error))
+	shown = os.path.relpath(path, repo_root).replace(os.sep, "/")
+	print("wrote {}".format(shown) if written else "{} exists; unchanged (the updater keeps it)".format(shown))
+	return 0
+
+
 def main():
+	readme_pointer()
 	try:
 		# build_parser reads the schema, so it sits inside the try.
 		args = build_parser().parse_args()

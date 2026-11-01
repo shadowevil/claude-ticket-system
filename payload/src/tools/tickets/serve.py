@@ -16,20 +16,27 @@ DETACHED (no console window, survives the calling shell). The server records its
 build/tickets/serve.pid once it holds the port. VIEW ONLY: GET on a fixed route table, nothing else;
 tickets are read fresh from .claude/tickets on every /api/tickets request, and /api/events pushes a
 version to open pages whenever a ticket file changes. Rules: .claude/docs/tickets.md.
+
+The one exception to GET only is the one-click update (B65, updater.py): GET /api/update and /api/update/status
+report it, and POST /api/update/apply starts it, only from this PC with the right Host, Origin and the page's token
+(apply_update). On start, an update whose helper died part-way is undone first (recover_interrupted_update).
 """
 
 import argparse
 import hashlib
+import hmac
 import html
 import http.server
 import ipaddress
 import json
 import os
 import re
+import secrets
 import signal
 import socket
 import subprocess
 import sys
+import threading
 import time
 import urllib.request
 from datetime import datetime, timezone
@@ -89,9 +96,197 @@ def stop_marker(settings):
 	return None
 
 
+def is_integer(value):
+	return isinstance(value, int) and not isinstance(value, bool)
+
+
+def process_created(pid):
+	"""The process's creation time in Windows FILETIME ticks, or None when it is gone, unreadable or not on Windows."""
+	if os.name != "nt" or not is_integer(pid) or not 0 < pid <= 0xFFFFFFFF:
+		return None
+	import ctypes
+	from ctypes import wintypes
+	kernel32 = ctypes.windll.kernel32
+	kernel32.OpenProcess.restype = wintypes.HANDLE
+	kernel32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+	kernel32.GetProcessTimes.argtypes = [wintypes.HANDLE] + [ctypes.POINTER(wintypes.FILETIME)] * 4
+	kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+	# PROCESS_QUERY_LIMITED_INFORMATION
+	handle = kernel32.OpenProcess(0x1000, False, pid)
+	if not handle:
+		return None
+	try:
+		times = [wintypes.FILETIME() for _ in range(4)]
+		if not kernel32.GetProcessTimes(handle, *[ctypes.byref(value) for value in times]):
+			return None
+		return (times[0].dwHighDateTime << 32) | times[0].dwLowDateTime
+	finally:
+		kernel32.CloseHandle(handle)
+
+
+def process_running(pid, created):
+	"""True while pid runs and, where its creation time was recorded (Windows), is still that process."""
+	if not is_integer(pid) or pid <= 0:
+		return False
+	if os.name != "nt":
+		try:
+			os.kill(pid, 0)
+		except OSError:
+			return False
+		return True
+	current = process_created(pid)
+	if current is None or (is_integer(created) and current != created):
+		return False
+	import ctypes
+	from ctypes import wintypes
+	kernel32 = ctypes.windll.kernel32
+	handle = kernel32.OpenProcess(0x1000, False, pid)
+	if not handle:
+		return False
+	try:
+		code = wintypes.DWORD()
+		# STILL_ACTIVE (259) while it runs; a process that has exited but whose handle is held still has its times.
+		return not kernel32.GetExitCodeProcess(handle, ctypes.byref(code)) or code.value == 259
+	finally:
+		kernel32.CloseHandle(handle)
+
+
+def path_inside(path, folder):
+	"""True when the absolute path lies inside folder (case-insensitively on Windows); no symlink is followed."""
+	if not isinstance(path, str) or not os.path.isabs(path):
+		return False
+	path = os.path.normcase(os.path.normpath(path))
+	folder = os.path.normcase(os.path.normpath(folder))
+	return path.startswith(folder.rstrip("\\/") + os.sep)
+
+
+def lenient_json(path):
+	try:
+		with open(path, "r", encoding="utf-8") as handle:
+			return json.load(handle)
+	except (OSError, ValueError, RecursionError):
+		return None
+
+
+def recover_interrupted_update(root):
+	"""Undo a one-click update (B65) whose helper died part-way, before anything is imported from the tool folder,
+	which may be half swapped: build/tickets/update.lock names a process that is gone, and update/status.json holds no
+	final state. Every file plan.json lists as backed up is put back, and every file it added is removed; targets
+	outside this folder (and the project schema) and backups outside the update's work area are refused. Self-contained
+	(it uses no updater.py, which may be one of the swapped files). True when it restored something."""
+	build = os.path.join(root, "build", "tickets")
+	lock_path = os.path.join(build, "update.lock")
+	if not os.path.isfile(lock_path):
+		return False
+	lock = lenient_json(lock_path)
+	if not isinstance(lock, dict):
+		try:
+			# Being written by the apply that has just taken it.
+			if time.time() - os.path.getmtime(lock_path) < 30:
+				return False
+		except OSError:
+			return False
+		lock = {}
+	if process_running(lock.get("pid"), lock.get("created")):
+		return False
+	update_dir = os.path.join(build, "update")
+	status_path = os.path.join(update_dir, "status.json")
+	status = lenient_json(status_path)
+	status = status if isinstance(status, dict) else {}
+	if status.get("state") in ("done", "rolled_back", "failed"):
+		try:
+			os.remove(lock_path)
+		except OSError:
+			pass
+		return False
+	work = lock.get("work")
+	plan = lenient_json(os.path.join(work, "plan.json")) if path_inside(work, update_dir) else None
+	problems = []
+	restored = 0
+	schema = os.path.join(root, ".claude", "tickets", "ticket.schema.json")
+	if isinstance(plan, dict):
+		def allowed(target):
+			return path_inside(target, viewer_dir) or (isinstance(target, str) and
+				os.path.normcase(os.path.normpath(target)) == os.path.normcase(schema))
+		for item in plan.get("backed_up") if isinstance(plan.get("backed_up"), list) else []:
+			target = item.get("target") if isinstance(item, dict) else None
+			backup = item.get("backup") if isinstance(item, dict) else None
+			if not allowed(target) or not path_inside(backup, work):
+				problems.append("refused a plan entry outside the tool folder: {!r}".format(target))
+				continue
+			try:
+				with open(backup, "rb") as source:
+					saved = source.read()
+				try:
+					with open(target, "rb") as current:
+						if current.read() == saved:
+							# Never replaced (the swap stopped before it), or already put back.
+							continue
+				except OSError:
+					pass
+				with open(target + ".restore", "wb") as copy:
+					copy.write(saved)
+				for attempt in range(40):
+					try:
+						os.replace(target + ".restore", target)
+						break
+					except PermissionError:
+						if attempt == 39:
+							raise
+						time.sleep(0.25)
+				restored += 1
+			except OSError as error:
+				problems.append("cannot restore {}: {}".format(target, error))
+				try:
+					os.remove(target + ".restore")
+				except OSError:
+					pass
+		for target in plan.get("added") if isinstance(plan.get("added"), list) else []:
+			if not allowed(target):
+				problems.append("refused a plan entry outside the tool folder: {!r}".format(target))
+				continue
+			try:
+				os.remove(target)
+				restored += 1
+			except FileNotFoundError:
+				pass
+			except OSError as error:
+				problems.append("cannot remove {}: {}".format(target, error))
+		for item in plan.get("copies") if isinstance(plan.get("copies"), list) else []:
+			target = item.get("target") if isinstance(item, dict) else None
+			if allowed(target) and os.path.isfile(target + ".new"):
+				try:
+					os.remove(target + ".new")
+				except OSError:
+					pass
+		cache = os.path.join(viewer_dir, "__pycache__")
+		if os.path.isdir(cache):
+			import shutil
+			shutil.rmtree(cache, ignore_errors=True)
+	status.update({"state": "rolled_back", "step": "recovery", "detail": "the update stopped part-way (its helper is "
+		"gone); serve.py restored the backup on its next start ({} file(s))".format(restored) if plan else
+		"the update stopped before it changed any file", "problems": [str(problem).encode("ascii", "replace").decode(
+		"ascii") for problem in problems], "changed": []})
+	try:
+		os.makedirs(update_dir, exist_ok=True)
+		with open(status_path, "w", encoding="utf-8", newline="\n") as handle:
+			json.dump(status, handle, indent=2)
+			handle.write("\n")
+		os.remove(lock_path)
+	except OSError:
+		pass
+	print("note: an interrupted update was undone ({} file(s) restored{}); see build/tickets/update/status.json".format(
+		restored, ", {} problem(s)".format(len(problems)) if problems else ""))
+	return bool(plan)
+
+
 # --stop needs only the pid file, the repo root and the health marker. tickets.py exits at import when config.json
 # is missing or invalid, so a stop is handled without it: a viewer must stay stoppable while the config is broken.
 stop_only = __name__ == "__main__" and stop_requested(sys.argv[1:])
+if __name__ == "__main__" and not stop_only and stop_repo_root():
+	if recover_interrupted_update(stop_repo_root()):
+		# This process may have loaded a replaced serve.py; run the restored one instead.
+		sys.exit(subprocess.call([sys.executable] + sys.argv))
 if stop_only:
 	ticket_store = None
 	repo_root = stop_repo_root()
@@ -170,6 +365,10 @@ def check_settings():
 	page_title = config.get("page_title", "")
 	if not isinstance(page_title, str):
 		fail_config("page_title must be a string")
+	# The one-click update's source (B65): absent or empty, updates are off.
+	if "update_source" in config and not isinstance(config["update_source"], str):
+		fail_config("update_source must be a string: the absolute path of this machine's ticket-system folder (leave it "
+			"out to turn updates off)")
 	# Absent or empty, the title is "<store_name> Tickets", on the page and in the manifest alike.
 	page_values.update({"store_name": store_name, "short_name": short_name, "theme_key": theme_key,
 		"page_title": page_title or store_name + " Tickets", "id_max_digits": str(ticket_store.id_max_digits)
@@ -226,14 +425,35 @@ page_values = {
 }
 placeholder_pattern = re.compile(r"\{\{([a-z_]+)\}\}")
 
+# The one-click update (B65). The token is made at start, kept in memory only and put in the page (a <meta>) for a
+# browser on this PC; POST /api/update/apply must send it back in X-Tickets-Token. A custom header forces a CORS
+# preflight, which this server never grants, so another site's page cannot send it, and cannot read the page for it.
+update_token = secrets.token_urlsafe(32)
+update_token_header = "X-Tickets-Token"
+update_apply_path = "/api/update/apply"
+update_body_max = 4096
+loopback_clients = ("127.0.0.1", "::1", "::ffff:127.0.0.1")
+updater_module = None
 
-def render_page(body):
+
+def update_tools():
+	"""The sibling updater.py, imported on first use (a viewer that never updates never loads it)."""
+	global updater_module
+	if updater_module is None:
+		import updater as module
+		updater_module = module
+	return updater_module
+
+
+def render_page(body, extra=None):
 	"""index.html with this project's names filled in, in one pass (a value is never re-scanned)."""
+	values = dict(page_values, **(extra or {}))
+
 	def value_of(match):
 		name = match.group(1)
-		if name not in page_values:
+		if name not in values:
 			return match.group(0)
-		return html.escape(page_values[name], quote=True)
+		return html.escape(values[name], quote=True)
 	return placeholder_pattern.sub(value_of, body.decode("utf-8")).encode("utf-8")
 
 
@@ -340,9 +560,101 @@ class viewer_handler(http.server.BaseHTTPRequestHandler):
 		self.end_headers()
 		self.wfile.write(body)
 
-	def send_json(self, value):
+	def send_json(self, value, status=200):
 		body = json.dumps(value, ensure_ascii=False).encode("utf-8")
-		self.send_body(200, body, "application/json; charset=utf-8", "no-store")
+		self.send_body(status, body, "application/json; charset=utf-8", "no-store")
+
+	def client_is_local(self):
+		return self.client_address[0] in loopback_clients
+
+	def local_hosts(self):
+		port = self.server.server_address[1]
+		return tuple(name.format(port) for name in ("127.0.0.1:{}", "localhost:{}", "[::1]:{}"))
+
+	def local_request(self):
+		"""A client on this PC that named this server by a loopback Host (a DNS-rebound name such as evil.example is not)."""
+		return self.client_is_local() and (self.one_header("Host") or "").lower() in self.local_hosts()
+
+	def update_info(self):
+		"""GET /api/update: the installed and latest release, the state, the release notes between them, the last apply's
+		status, and whether this client may apply (a browser on this PC, with nothing running)."""
+		tools = update_tools()
+		info = tools.discover(config, viewer_dir)
+		paths = tools.state_paths(repo_root)
+		info["status"] = tools.read_status(paths)
+		info["busy"] = os.path.isfile(paths["lock"])
+		info["can_apply"] = self.local_request() and info["state"] == "available" and not info["busy"]
+		return info
+
+	def refuse_update(self, status, reason):
+		log_line("update refused ({}): {} from {}".format(status, reason, self.address_string()))
+		self.send_json({"error": reason}, status)
+
+	def one_header(self, name):
+		"""The header's value when it is sent exactly once, else None."""
+		values = self.headers.get_all(name) or []
+		return values[0].strip() if len(values) == 1 else None
+
+	def apply_update(self):
+		"""POST /api/update/apply: start the update the page confirmed. Every check must pass, else 403: the client is
+		this PC; Host is 127.0.0.1:<port>, localhost:<port> or [::1]:<port>; Origin is http:// plus one of those;
+		X-Tickets-Token is this server's token. Then the body must be JSON naming the version GET /api/update offers, and
+		no apply may be running (update.lock). No CORS header is ever sent."""
+		if update_tools().source_folder(config)[0] is None:
+			# No (usable) update_source: updates are off, and nothing is accepted however it is asked.
+			self.refuse_update(403, "updates are off (no update_source in config.json)")
+			return
+		port = self.server.server_address[1]
+		hosts = self.local_hosts()
+		host = (self.one_header("Host") or "").lower()
+		origin = (self.one_header("Origin") or "").lower()
+		token = self.one_header(update_token_header) or ""
+		token_ok = hmac.compare_digest(token.encode("utf-8", "replace"), update_token.encode("ascii"))
+		if not (self.client_is_local() and host in hosts and origin in ["http://" + item for item in hosts] and token_ok):
+			self.refuse_update(403, "forbidden")
+			return
+		if (self.one_header("Content-Type") or "").split(";", 1)[0].strip().lower() != "application/json":
+			self.refuse_update(415, "the body must be application/json")
+			return
+		try:
+			length = int(self.one_header("Content-Length") or "")
+		except ValueError:
+			length = -1
+		if not 0 < length <= update_body_max:
+			self.refuse_update(400, "a JSON body of at most {} bytes is required".format(update_body_max))
+			return
+		try:
+			request = json.loads(self.rfile.read(length).decode("utf-8"))
+		except (ValueError, UnicodeDecodeError, RecursionError):
+			request = None
+		if not isinstance(request, dict) or not isinstance(request.get("version"), str):
+			self.refuse_update(400, "the body must be {\"version\": \"x.y.z\"}")
+			return
+		tools = update_tools()
+		info = tools.discover(config, viewer_dir)
+		if info["state"] != "available" or request["version"] != info["latest"]:
+			self.refuse_update(409, "{} is not the update on offer ({})".format(ticket_store.ascii_text(
+				request["version"][:20]), info["latest"] if info["state"] == "available" else info["state"]))
+			return
+		paths = tools.state_paths(repo_root)
+		version = info["latest"]
+		work = os.path.join(paths["update"], version)
+		if not tools.take_lock(paths, version, work):
+			self.refuse_update(409, "an update is already running")
+			return
+		viewer = {"pid": os.getpid(), "created": process_created(os.getpid()), "port": port,
+			"bind": self.server.bind_address, "service": service_marker,
+			"data_dir": ticket_store.tickets_dir if ticket_store.tickets_dir != default_tickets_dir else None}
+		log_line("update {} -> {} accepted from {}".format(info["installed"], version, self.address_string()))
+		threading.Thread(target=tools.prepare, args=(repo_root, viewer_dir, config, version, viewer),
+			daemon=True).start()
+		self.send_json({"state": "running", "version": version}, 202)
+
+	def do_POST(self):
+		if self.path.split("?", 1)[0] == update_apply_path:
+			self.apply_update()
+			return
+		self.refuse()
 
 	def stream_events(self):
 		"""Server-sent events: a 'tickets' event carrying the folder version on connect and on every change."""
@@ -383,6 +695,18 @@ class viewer_handler(http.server.BaseHTTPRequestHandler):
 		if path == health_path:
 			self.send_json({"service": service_marker, "pid": os.getpid(), "bind": self.server.bind_address})
 			return
+		if path in ("/api/update", "/api/update/status") and not self.local_request():
+			# They hold this machine's paths (the source, the work area); a LAN or DNS-rebound client gets nothing.
+			self.send_json({"error": "the update routes answer this PC only"}, 403)
+			return
+		if path == "/api/update":
+			self.send_json(self.update_info())
+			return
+		if path == "/api/update/status":
+			tools = update_tools()
+			paths = tools.state_paths(repo_root)
+			self.send_json({"status": tools.read_status(paths), "busy": os.path.isfile(paths["lock"])})
+			return
 		target = None
 		for candidate in routes.get(path, []):
 			if os.path.isfile(candidate):
@@ -393,7 +717,11 @@ class viewer_handler(http.server.BaseHTTPRequestHandler):
 			return
 		with open(target, "rb") as handle:
 			body = handle.read()
-		if path in renderers:
+		if path in ("/", "/index.html"):
+			# The update token only for a browser on this PC that named a loopback Host: a LAN client, or a page reached
+			# through a DNS-rebound name, never gets it.
+			body = render_page(body, {"update_token": update_token if self.local_request() else ""})
+		elif path in renderers:
 			body = renderers[path](body)
 		content_type = content_types.get(os.path.splitext(target)[1], "application/octet-stream")
 		# no-cache = revalidate every time, so an edited viewer shows on refresh.
@@ -406,7 +734,7 @@ class viewer_handler(http.server.BaseHTTPRequestHandler):
 		self.end_headers()
 
 	do_HEAD = refuse
-	do_POST = refuse
+	# do_POST (above) answers POST /api/update/apply only; every other POST is refused like this.
 	do_PUT = refuse
 	do_PATCH = refuse
 	do_DELETE = refuse
@@ -526,38 +854,10 @@ def write_pid_file(pid, port, bind_address):
 		handle.write("\n")
 
 
-def is_integer(value):
-	return isinstance(value, int) and not isinstance(value, bool)
-
-
 def recorded_text(record, key):
 	"""A non-empty string the record holds under key, else None (a pid file from 1.0.0 lacks the newer keys)."""
 	value = record.get(key)
 	return value if isinstance(value, str) and value.strip() else None
-
-
-def process_created(pid):
-	"""The process's creation time in Windows FILETIME ticks, or None when it is gone, unreadable or not on Windows."""
-	if os.name != "nt" or not is_integer(pid) or not 0 < pid <= 0xFFFFFFFF:
-		return None
-	import ctypes
-	from ctypes import wintypes
-	kernel32 = ctypes.windll.kernel32
-	kernel32.OpenProcess.restype = wintypes.HANDLE
-	kernel32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
-	kernel32.GetProcessTimes.argtypes = [wintypes.HANDLE] + [ctypes.POINTER(wintypes.FILETIME)] * 4
-	kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
-	# PROCESS_QUERY_LIMITED_INFORMATION
-	handle = kernel32.OpenProcess(0x1000, False, pid)
-	if not handle:
-		return None
-	try:
-		times = [wintypes.FILETIME() for _ in range(4)]
-		if not kernel32.GetProcessTimes(handle, *[ctypes.byref(value) for value in times]):
-			return None
-		return (times[0].dwHighDateTime << 32) | times[0].dwLowDateTime
-	finally:
-		kernel32.CloseHandle(handle)
 
 
 def recorded_instance(record, pid):
@@ -823,6 +1123,19 @@ def stop():
 	return 0
 
 
+def log_update_check():
+	"""The start's update check (B65): one log line when a release is on offer or the source cannot be read."""
+	try:
+		info = update_tools().discover(config, viewer_dir)
+	except Exception as error:  # noqa: BLE001 - the check never stops the viewer from serving
+		log_line("update check failed: {}: {}".format(type(error).__name__, error))
+		return
+	if info["state"] == "available":
+		log_line("update: {} is available (installed {}); the page shows it".format(info["latest"], info["installed"]))
+	elif info["state"] in ("unavailable", "unknown"):
+		log_line("update check: {}".format(info["reason"]))
+
+
 def run_foreground(port, bind_address):
 	try:
 		server = viewer_server(bind_address, port)
@@ -847,6 +1160,7 @@ def run_foreground(port, bind_address):
 			"--stop will not reach it".format(other.get("pid"), other.get("port"), os.getpid()))
 		log_line("note: " + note)  # echoed to the console too
 	log_line("serving on {}:{} (pid {})".format(bind_address, port, os.getpid()))
+	log_update_check()
 	if sys.stdout is not None:
 		try:
 			print_urls(port, bind_address)

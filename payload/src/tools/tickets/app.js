@@ -841,6 +841,254 @@
 		$("filter-toggle").setAttribute("aria-expanded", open ? "true" : "false");
 	}
 
+	/* --- the one-click update (B65) ------------------------------------------------------- */
+
+	/* GET /api/update says whether a newer release is on offer; the badge opens a confirm dialog with its changelog. The
+	   apply is a POST carrying the token serve.py put in the page (only a browser on this PC gets one). While the helper
+	   restarts the viewer, the page polls /api/health, then reloads and shows the result. */
+	var update_info = null;
+	var update_poll_ms = 1000;
+	// Give up waiting after this long (an export, a validate of a big store and a restart fit well inside it).
+	var update_wait_ms = 10 * 60 * 1000;
+	var update_started_at = 0;
+	var update_viewer_down = false;
+	var update_in_progress = false;
+	var update_result_key = theme_key + "-update-result";
+	var update_final_states = ["done", "rolled_back", "failed"];
+
+	function update_token() {
+		var meta = document.querySelector('meta[name="tickets-update-token"]');
+		var value = meta ? meta.getAttribute("content") || "" : "";
+		// An unfilled template placeholder is no token.
+		return /^[A-Za-z0-9_-]{16,}$/.test(value) ? value : "";
+	}
+
+	function get_json(url) {
+		return fetch(url, { cache: "no-store" }).then(function (response) {
+			if (!response.ok) {
+				throw new Error("HTTP " + response.status);
+			}
+			return response.json();
+		});
+	}
+
+	function check_update() {
+		return get_json("/api/update").then(function (info) {
+			update_info = info;
+			var badge = $("update-badge");
+			if (info.can_apply && info.latest && update_token()) {
+				badge.textContent = "Update " + info.latest;
+				badge.title = "Release " + info.latest + " is available (this copy runs " + info.installed + ")";
+				badge.hidden = false;
+			} else {
+				badge.hidden = true;
+			}
+			if (info.busy && !update_in_progress) {
+				// Opened (or reloaded) while an update runs.
+				begin_waiting(info.status && info.status.version, true);
+			}
+			return info;
+		}).catch(function () {
+			$("update-badge").hidden = true;
+		});
+	}
+
+	function dialog_button(label, primary, handler) {
+		var button = el("button", "update-button" + (primary ? " primary" : ""), label);
+		button.type = "button";
+		button.addEventListener("click", handler);
+		return button;
+	}
+
+	function open_dialog(title, nodes, buttons) {
+		var dialog = $("update-dialog");
+		dialog.textContent = "";
+		var heading = el("h2", null, title);
+		heading.id = "update-title";
+		var actions = append(el("div", "update-actions"), buttons);
+		append(dialog, [heading, append(el("div", "update-body"), nodes), buttons.length ? actions : null]);
+		$("update-backdrop").hidden = false;
+		var focus = actions.querySelector("button.primary") || actions.querySelector("button");
+		if (focus) {
+			focus.focus();
+		}
+	}
+
+	function close_dialog() {
+		if (!update_in_progress) {
+			$("update-backdrop").hidden = true;
+		}
+	}
+
+	function text_list(lines, as_code) {
+		return append(el("ul", "update-list"), lines.map(function (line) {
+			return as_code ? append(el("li"), [el("code", null, String(line))]) : el("li", null, String(line));
+		}));
+	}
+
+	function confirm_update() {
+		var info = update_info;
+		if (!info || !info.latest) {
+			return;
+		}
+		var nodes = [];
+		(info.notes || []).forEach(function (note) {
+			nodes.push(el("h3", null, "Release " + note.version));
+			if (note.changelog) {
+				// The changelog comes from the source's manifests: rendered like a ticket body, through DOMPurify.
+				nodes.push(render_markdown(note.changelog));
+			}
+			if (note.agents && note.agents.length) {
+				nodes.push(el("strong", null, "For agents:"));
+				nodes.push(text_list(note.agents, false));
+			}
+		});
+		nodes.push(el("p", "update-note", "The update replaces the tool files and the schema (your enums and id patterns " +
+			"are kept), restarts the viewer and runs validate; if anything fails, the backup is put back. The skill, the " +
+			"hooks and the rules doc are only staged, in build/tickets/staged/" + info.latest + "/, for review. Nothing " +
+			"is committed: review and commit the changes yourself."));
+		open_dialog("Update " + info.installed + " -> " + info.latest, nodes, [
+			dialog_button("Cancel", false, close_dialog),
+			dialog_button("Update now", true, function () { start_update(info.latest); })
+		]);
+	}
+
+	function show_progress(version, step) {
+		open_dialog("Updating" + (version ? " to " + version : ""), [
+			append(el("p"), [el("span", null, "Step: "), el("span", "update-step", step || "starting")]),
+			el("p", "muted", "Keep this page open. The viewer stops and starts again on its own; this page reloads when " +
+				"it is back.")
+		], []);
+	}
+
+	function start_update(version) {
+		begin_waiting(version, false);
+		fetch("/api/update/apply", {
+			method: "POST",
+			cache: "no-store",
+			headers: { "Content-Type": "application/json", "X-Tickets-Token": update_token() },
+			body: JSON.stringify({ version: version })
+		}).then(function (response) {
+			return response.json().catch(function () { return {}; }).then(function (data) {
+				if (response.status !== 202) {
+					throw new Error(data.error || "HTTP " + response.status);
+				}
+				poll_update(version);
+			});
+		}).catch(function (error) {
+			update_in_progress = false;
+			show_result({ state: "failed", detail: "The viewer did not start the update: " + error.message });
+		});
+	}
+
+	function begin_waiting(version, poll) {
+		update_in_progress = true;
+		update_viewer_down = false;
+		update_started_at = Date.now();
+		show_progress(version, "starting");
+		if (poll) {
+			poll_update(version);
+		}
+	}
+
+	function poll_update(version) {
+		if (Date.now() - update_started_at > update_wait_ms) {
+			update_in_progress = false;
+			show_result({ state: "failed", detail: "No answer from the updater in time; see build/tickets/update/" +
+				"status.json and helper.log." });
+			return;
+		}
+		get_json("/api/update/status").then(function (data) {
+			var status = data.status || {};
+			if (!data.busy && update_final_states.indexOf(status.state) >= 0) {
+				update_in_progress = false;
+				if (update_viewer_down) {
+					// The viewer restarted: reload to get its new page, then show the result there.
+					try {
+						window.sessionStorage.setItem(update_result_key, "1");
+					} catch (error) {
+						/* no storage: the result shows on this page instead */
+						show_result(status);
+						return;
+					}
+					window.location.reload();
+					return;
+				}
+				show_result(status);
+				return;
+			}
+			show_progress(status.version || version, status.step);
+			window.setTimeout(function () { poll_update(version); }, update_poll_ms);
+		}).catch(function () {
+			update_viewer_down = true;
+			show_progress(version, "the viewer is restarting");
+			poll_health(version);
+		});
+	}
+
+	// While the viewer is down: ask /api/health until it answers, then follow the status again.
+	function poll_health(version) {
+		window.setTimeout(function () {
+			get_json("/api/health").then(function () {
+				poll_update(version);
+			}).catch(function () {
+				if (Date.now() - update_started_at > update_wait_ms) {
+					poll_update(version);
+				} else {
+					poll_health(version);
+				}
+			});
+		}, update_poll_ms);
+	}
+
+	function show_result(status) {
+		var nodes = [];
+		var title;
+		if (status.state === "done") {
+			title = "Updated to " + (status.version || "the new release");
+			var changed = status.changed || [];
+			nodes.push(el("h3", null, "Changed files (" + changed.length + "), not committed"));
+			nodes.push(changed.length ? text_list(changed, true) : el("p", "muted", "none"));
+			var actions = status.actions || [];
+			nodes.push(el("h3", null, "ACTION lines (" + actions.length + ")"));
+			nodes.push(actions.length ? text_list(actions, false) : el("p", "muted", "none"));
+			nodes.push(el("p", "update-note", "Agents find these lines, and what changed for them, in " +
+				".claude/tickets/README.md. Review and commit the changed files."));
+		} else {
+			title = status.state === "rolled_back" ? "Update rolled back" : "Update not applied";
+			if (status.step) {
+				nodes.push(append(el("p"), [el("span", null, "Failed at: "), el("span", "update-step", status.step)]));
+			}
+			nodes.push(el("pre", "update-detail", status.detail || "no detail"));
+			if (status.problems && status.problems.length) {
+				nodes.push(el("h3", null, "Problems"));
+				nodes.push(text_list(status.problems, false));
+			}
+			nodes.push(el("p", "update-note update-error", status.state === "rolled_back"
+				? "The backup was put back and the old viewer started again."
+				: "Nothing outside build/tickets/ was changed."));
+		}
+		open_dialog(title, nodes, [dialog_button("Close", true, close_dialog)]);
+		check_update();
+	}
+
+	function show_remembered_result() {
+		var remembered = null;
+		try {
+			remembered = window.sessionStorage.getItem(update_result_key);
+			window.sessionStorage.removeItem(update_result_key);
+		} catch (error) {
+			return;
+		}
+		if (remembered) {
+			get_json("/api/update/status").then(function (data) {
+				if (data.status) {
+					show_result(data.status);
+				}
+			}).catch(function () { /* the result stays in build/tickets/update/status.json */ });
+		}
+	}
+
 	/* --- wiring --------------------------------------------------------------------------- */
 
 	function init() {
@@ -890,8 +1138,21 @@
 				load();
 			}
 		});
+		$("update-badge").addEventListener("click", confirm_update);
+		$("update-backdrop").addEventListener("click", function (event) {
+			if (event.target === $("update-backdrop")) {
+				close_dialog();
+			}
+		});
+		document.addEventListener("keydown", function (event) {
+			if (event.key === "Escape" && !$("update-backdrop").hidden) {
+				close_dialog();
+			}
+		});
 		load();
 		connect_live();
+		show_remembered_result();
+		check_update();
 	}
 
 	init();

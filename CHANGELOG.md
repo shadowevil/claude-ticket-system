@@ -2,6 +2,44 @@
 
 Versions use x.y.z numbering (user rule, 2026-09-30): **minor** means the configuration or a JSON structure changed, **patch** is anything smaller such as UI updates and fixes, and **major** is kept for large progress, which is not defined yet. Each entry lists the items it ships, by their numbers (`B<n>`) in the maintainer's internal backlog, and its upgrade steps. The steps in full are in `docs/UPGRADING.md`.
 
+## [1.5.1] - 2026-11-01
+
+**Docs only.** The `update_source` example in `docs/adopting/steps.md` and `docs/upgrading/1.4.x-to-1.5.0.md` named the maintainer's local repository; it now reads `C:\\path\\to\\source-repo\\ticket-system`. A **patch**: no code, configuration or JSON structure change, and nothing to do for a copy on 1.5.0.
+
+Agents: none
+
+## [1.5.0] - 2026-11-01
+
+**The viewer's one-click update, and the last manual upgrade.** A **minor**: `config.json` gains `update_source`, the ticket schema gains `x-project-owned`, and the viewer's API gains three routes. Nothing migrates: both keys are optional for existing stores. The steps are in `docs/UPGRADING.md` sect. 10; from 1.5.0 on, releases install from the viewer (sect. 11).
+
+- **An update badge and one-click update (B65, from the user):** with `update_source` in `config.json` (the absolute path of the maintainer's `ticket-system/` folder on this machine), the viewer shows "Update x.y.z" in its top bar when a newer release is tagged there. A click shows the changelog (rendered through marked and DOMPurify) and asks to confirm, then:
+  - the release, and the one the copy runs (the merge base), are exported from their tags with `release.py export` into `build/tickets/update/<v>/`; every file is checked against the export's manifest `raw` hash, and every manifest path must sit under `src/tools/tickets/` or `dot-claude/` with no `..`;
+  - the schema is merged with `merge_schema` (the project's `x-project-owned` values kept); a project change outside them stops the update before any file changes;
+  - the replaced files are backed up, and a detached helper from the new release (`updater_helper.py`) stops the viewer, installs each file as `.new` plus `os.replace` (a held file retried for 10 s), deletes `__pycache__`, runs `validate` and restarts the viewer on the same port and bind; a failure restores the backup and restarts the old viewer, and a helper that dies part-way is undone by the next `serve.py` start;
+  - the skill (Settings rows carried over, version row set), the hooks (where installed) and the rules doc (merged with `merge-doc --base`) are only staged, in `build/tickets/staged/<v>/`; nothing is committed and no git command runs in the adopter's repository.
+- **The update endpoint (B65):** `GET /api/update` (installed, latest, state, release notes), `GET /api/update/status`, and `POST /api/update/apply`, the viewer's only POST. It needs all of: a client on this PC, `Host` `127.0.0.1:<port>` or `localhost:<port>`, a matching `Origin`, and `X-Tickets-Token` equal to a token made at start (memory only, served in a `<meta>` to local clients, compared with `hmac.compare_digest`); anything else is 403, and no CORS header is ever sent. The body must name the version on offer (409 otherwise), and `build/tickets/update.lock` refuses a second apply (409). Without `update_source` the POST is always 403. Discovery is a listing of `releases/*.json` plus `git tag -l`: an untagged manifest is never offered.
+- **The agents README (B65, from the user):** `.claude/tickets/README.md`, rewritten by each update: per release, newest first, its `Agents:` lines, then the `ACTION` lines for the copy. After an update, `tickets.py` prints `tickets: store updated to <v> - see .claude/tickets/README.md` once, to stderr (`build/tickets/readme-seen`); `tickets.py readme` writes the first README. The skill gains "After an update": read it, and act on `ACTION` lines only as the role allows.
+- **`update_source` (B65):** optional; absent or empty, updates are off (the opt-out). A non-string stops `serve.py` with an error naming the key.
+- **`schema_merge.py` from the command line (B65):** `python <CLI_DIR>/schema_merge.py <release> <project> --base <base> --out <file>`, the manual 1.5.0 schema step.
+- **New tool-folder files:** `updater.py`, `updater_helper.py` (with `schema_merge.py` and `VERSION` below). Changed: `tickets.py`, `serve.py`, `app.js`, `index.html`, `style.css`.
+- **`x-project-owned` in `ticket.schema.json` (B65):** a top-level list of JSON pointers to the values a project owns: the id pattern (`/properties/id/pattern`, `/$defs/ticket_ids/items/pattern`) and the `status`, `severity`, `owner_area` and `author` enums. `tickets.py` ignores the keyword, so existing tickets validate unchanged.
+- **`schema_merge.py` (B65):** a new tool-folder module, `merge_schema(release, project, base) -> (merged, problems)`. It takes the release's schema and copies the project's value in at each owned pointer; if the project differs from the base release's schema anywhere else, it returns problems and no merge.
+- **A `VERSION` file in the tool folder (B65):** one line, the version the installed copy is at. `release.py manifest` writes it from `VERSION` and lists it, so `identify` and `export` carry it like any product file.
+- **Release tooling (B65):** a new manifest also records `changelog` (the entry's text) and `agents` (the lines of the entry's `Agents:` block, `[]` for `Agents: none`); manifests already written are never rewritten. `release.py check` fails without the `Agents:` block, with an `x-project-owned` pointer that does not resolve in the payload schema, or when the payload's `VERSION` file disagrees with `VERSION`.
+- **Structure:** `ticket.schema.json` gains `x-project-owned`; `config.json` gains `update_source`; the viewer API gains `GET /api/update`, `GET /api/update/status` and `POST /api/update/apply`; manifests gain `changelog` and `agents`.
+- **Ships:** B65.
+
+**Upgrade** from 1.4.x (`docs/UPGRADING.md` sect. 10), the last one by hand:
+1. Get the release, back up, stop the viewer; copy the tool folder except `icons/`.
+2. Ignore `build/tickets/`; merge the schema with `schema_merge.py --base <your release's schema>`; add `update_source` on the maintainer's machine.
+3. Merge the rules doc with `merge-doc`, take the skill (Settings rows back, version row set, reviewed), run `tickets.py readme`, restart the viewer, commit.
+
+Agents:
+- After an update, `tickets.py` prints `tickets: store updated to <version> - see .claude/tickets/README.md` once, on stderr: read that README's newest section before the next write.
+- `ACTION` lines in `.claude/tickets/README.md` are for this copy: act on one only if your role allows it, otherwise tell the user (or the PM).
+- `tickets.py readme` writes the README when it is missing.
+- `ticket.schema.json` may hold an `x-project-owned` list; it is for the updater, and agents ignore it.
+
 ## [1.4.2] - 2026-11-01
 
 **The rules-doc merge rebuilt as a three-way merge.** 1.4.1 was tagged but never published; 1.4.2 is that release with `merge-doc` redone, so a copy on 1.4.0 or 1.3.x upgrades straight to it. A **patch**: no configuration or JSON structure change. The steps are in `docs/UPGRADING.md` sect. 9, read for 1.4.2.

@@ -1,6 +1,9 @@
 """Release tooling for the ticket system: manifests, the pre-release check, and version identification.
 
-    python ticket-system/tools/release.py manifest         record releases/<VERSION>.json from payload/
+    python ticket-system/tools/release.py manifest         record releases/<VERSION>.json from payload/; writes the
+                                                           payload's src/tools/tickets/VERSION first, and (new
+                                                           manifests only) the CHANGELOG entry as "changelog" and its
+                                                           "Agents:" block as "agents" (a list of lines; none is [])
     python ticket-system/tools/release.py check            payload, VERSION, CHANGELOG and manifest agree,
                                                            the bump level fits the JSON structure change, and
                                                            BACKLOG.md's open items are listed (WARN)
@@ -58,6 +61,11 @@ backlog_path = os.path.join(system_dir, "BACKLOG.md")
 
 version_pattern = re.compile(r"^[0-9]+\.[0-9]+\.[0-9]+$")
 skill_payload_path = "dot-claude/skills/tickets/SKILL.md"
+schema_payload_path = "dot-claude/tickets/ticket.schema.json"
+# From 1.5.0 the tool folder holds a VERSION file (product, one line): the version the installed copy is at.
+product_version_rel = "src/tools/tickets/VERSION"
+# A CHANGELOG entry's "Agents:" block (B65): "Agents: none", "- Agents: ...", "**Agents:** ..."; group 1 is the rest of the line.
+agents_line = re.compile(r"^[ \t]*(?:[-*+][ \t]+)?(?:\*\*)?Agents(?:\*\*)?:(?:\*\*)?(.*)$")
 settings_title = "## Settings (per project)"
 binary_suffixes = (".png",)
 
@@ -442,12 +450,92 @@ def git(*arguments, where=None):
 	return run_git(where or git_layout()[0], arguments)
 
 
+def agents_block(entry_lines):
+	"""The lines of an "Agents:" block in a CHANGELOG entry (B65): the text after "Agents:" on its line, then the
+	bullet or indented lines that follow, up to a blank line or any other line. "Agents: none" is []. None when the
+	entry has no such block, or it is empty (write none)."""
+	for index, line in enumerate(entry_lines):
+		match = agents_line.match(line.rstrip("\r"))
+		if not match:
+			continue
+		first = match.group(1).strip()
+		lines = [first] if first else []
+		for later in entry_lines[index + 1:]:
+			later = later.rstrip("\r")
+			if not later.strip() or not (later[:1] in (" ", "\t") or re.match(r"^[-*+][ \t]", later)):
+				break
+			lines.append(re.sub(r"^[ \t]*(?:[-*+][ \t]+)?", "", later).strip())
+		if len(lines) == 1 and lines[0].lower().rstrip(".") == "none":
+			return []
+		return lines or None
+	return None
+
+
+def changelog_info(version):
+	"""(entry text, agents list) of CHANGELOG.md's entry for `version`; (None, None) when it has no entry. The agents
+	list is None when the entry has no Agents: block."""
+	with open(changelog_path, "r", encoding="utf-8") as handle:
+		entry = changelog_entry(handle.read(), version)
+	if entry is None:
+		return None, None
+	return "\n".join(entry).strip("\n").replace("\r", ""), agents_block(entry)
+
+
+def product_version_path():
+	return os.path.join(payload_dir, *product_version_rel.split("/"))
+
+
+def read_product_version():
+	"""The text of payload's VERSION product file (stripped), or None when it is missing."""
+	try:
+		return read_bytes(product_version_path()).decode("utf-8", "replace").strip()
+	except OSError:
+		return None
+
+
+def pointer_problems():
+	"""The x-project-owned pointers of the payload schema that do not resolve (B65), as problem lines."""
+	path = os.path.join(payload_dir, *schema_payload_path.split("/"))
+	try:
+		schema = read_json(path)
+	except (OSError, ValueError) as error:
+		return ["cannot read the payload schema ({})".format(type(error).__name__)]
+	owned = schema_merge().owned_pointers(schema)
+	if not owned:
+		return ["the payload schema has no x-project-owned list of pointers"]
+	return ["x-project-owned pointer {} does not resolve in the payload schema".format(pointer)
+		for pointer in owned if not schema_merge().resolve(schema, pointer)[0]]
+
+
+def schema_merge():
+	"""The payload's schema_merge module, loaded from its file without leaving a __pycache__ in payload/."""
+	global schema_merge_module
+	if schema_merge_module is None:
+		import importlib.util
+		spec = importlib.util.spec_from_file_location("schema_merge", os.path.join(payload_dir, "src", "tools", "tickets",
+			"schema_merge.py"))
+		module = importlib.util.module_from_spec(spec)
+		before = sys.dont_write_bytecode
+		sys.dont_write_bytecode = True
+		try:
+			spec.loader.exec_module(module)
+		finally:
+			sys.dont_write_bytecode = before
+		schema_merge_module = module
+	return schema_merge_module
+
+
+schema_merge_module = None
+
+
 def command_manifest(args):
 	version = read_version()
 	path = manifest_path(version)
 	if os.path.isfile(path) and not args.force:
 		existing = read_manifest(path)
-		if existing != build_manifest(version, scheme_of(existing)):
+		# A manifest from 1.5.0 on also holds its changelog entry and agents lines; they are not payload bytes.
+		compared = {key: value for key, value in existing.items() if key not in ("changelog", "agents")}
+		if compared != build_manifest(version, scheme_of(existing)):
 			print("ERROR {} exists and differs from payload/; a released version is never rewritten.".format(
 				os.path.relpath(path, system_dir)))
 			print("      Bump VERSION for a new release, or pass --force before the release is tagged.")
@@ -464,7 +552,22 @@ def command_manifest(args):
 			print("ERROR {} exists: {} is released and is never rewritten. Bump VERSION instead.".format(
 				tag, version))
 			return 1
-	write_json(path, build_manifest(version))
+	entry, agents = changelog_info(version)
+	if entry is None:
+		print("ERROR CHANGELOG.md has no entry for {}; write it first (the manifest records it).".format(version))
+		return 1
+	if agents is None:
+		print("ERROR the CHANGELOG.md entry for {} has no non-empty \"Agents:\" block (lines for agents, or \"Agents: none\").".format(
+			version))
+		return 1
+	# The product VERSION file (the installed copy's version) is written from VERSION, then listed with the rest.
+	os.makedirs(os.path.dirname(product_version_path()), exist_ok=True)
+	with open(product_version_path(), "w", encoding="utf-8", newline="\n") as handle:
+		handle.write(version + "\n")
+	manifest = build_manifest(version)
+	manifest["changelog"] = entry
+	manifest["agents"] = agents
+	write_json(path, manifest)
 	print("wrote {} ({} files)".format(os.path.relpath(path, system_dir), len(payload_files())))
 	return 0
 
@@ -831,6 +934,22 @@ def command_check(args):
 		changelog_text = handle.read()
 	if not heading.search(changelog_text):
 		problems.append("CHANGELOG.md has no entry for " + version)
+	else:
+		entry, agents = changelog_info(version)
+		if agents is None:
+			problems.append("the CHANGELOG.md entry for {} has no non-empty \"Agents:\" block (lines for agents, or "
+				"\"Agents: none\")".format(version))
+		if os.path.isfile(path):
+			for key, value in (("changelog", entry), ("agents", agents)):
+				if key in recorded and recorded[key] != value:
+					problems.append("releases/{}.json {} is out of date with CHANGELOG.md (run: release.py manifest --force, "
+						"before tagging)".format(version, key))
+	shipped_version = read_product_version()
+	if shipped_version is None:
+		problems.append("no {} in payload (run: release.py manifest)".format(product_version_rel))
+	elif shipped_version != version:
+		problems.append("payload {} says {!r}, VERSION says {}".format(product_version_rel, shipped_version, version))
+	problems += pointer_problems()
 	pycache = [relative for relative in payload_files() if relative.endswith(".pyc")]
 	problems += ["compiled file in payload: " + relative for relative in pycache]
 	gate_problems, gate_warnings, bump = version_gate(version, changelog_text)

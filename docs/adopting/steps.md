@@ -30,23 +30,23 @@ It exits 0 either way; read the word. On Windows, `Get-NetTCPConnection -State L
 
 **From a clone of the GitHub repo:** skip the export. The clone is the release: `PAYLOAD` is `<SRC>/payload/`. (The public repo tags each release from 1.3.1 on, so the export below also works in a clone for 1.3.1 and later; you don't need it.)
 
-**Check:** `<SRC>/VERSION` reads `1.4.2`, and `git -C <SRC> status --short` prints nothing, so you install the release as published.
+**Check:** `<SRC>/VERSION` reads `1.5.1`, and `git -C <SRC> status --short` prints nothing, so you install the release as published.
 
 **On the maintainer's machine,** SRC is the maintainer's source folder. Export the release from it into your scratch:
 
 ```bash
-python <SRC>/tools/release.py export 1.4.2 <SCRATCH>/ticket-system-1.4.2
+python <SRC>/tools/release.py export 1.5.1 <SCRATCH>/ticket-system-1.5.1
 ```
 
-The export reads the release tag, `tickets-v1.4.2`, so it works only once that tag exists; before then it stops with `ERROR cannot read tickets-v1.4.2: ...`. (The maintainer's pre-release test exports a branch with `--ref <branch>`; an adopter never does.) Everything below copies from `<SCRATCH>/ticket-system-1.4.2/payload/` (call it `PAYLOAD`), never from SRC's working tree, which may be mid-change.
+The export reads the release tag, `tickets-v1.5.1`, so it works only once that tag exists; before then it stops with `ERROR cannot read tickets-v1.5.1: ...`. (The maintainer's pre-release test exports a branch with `--ref <branch>`; an adopter never does.) Everything below copies from `<SCRATCH>/ticket-system-1.5.1/payload/` (call it `PAYLOAD`), never from SRC's working tree, which may be mid-change.
 
-**Check:** the command prints `exported tickets-v1.4.2 to ...`, and `PAYLOAD/../VERSION` reads `1.4.2`.
+**Check:** the command prints `exported tickets-v1.5.1 to ...`, and `PAYLOAD/../VERSION` reads `1.5.1`.
 
 ## 3. Copy the files
 
 | From `PAYLOAD/` | To `REPO/` |
 |---|---|
-| `src/tools/tickets/`, the whole folder: the scripts (`tickets.py`, `author.py`, `serve.py`, `make_icons.py`), the page files, `icons/` and `lib/` | `<CLI_DIR>/` |
+| `src/tools/tickets/`, the whole folder: the scripts (`tickets.py`, `author.py`, `serve.py`, `make_icons.py`, and from 1.5.0 the updater's `updater.py`, `updater_helper.py` and `schema_merge.py`), the `VERSION` file (from 1.5.0), the page files, `icons/` and `lib/` | `<CLI_DIR>/` |
 | `dot-claude/tickets/ticket.schema.json`, `tags.json` | `.claude/tickets/` |
 | `dot-claude/docs/tickets.md` | `.claude/docs/tickets.md` (you adapt it in step 7) |
 | `dot-claude/skills/tickets/SKILL.md` | **not yet**; it goes to `SCRATCH` and is installed after review (step 8) |
@@ -89,8 +89,11 @@ Add an optional key only when its default doesn't suit you:
 | `icon_color` | The icons' background: `#rrggbb`, either case (step 5) | `#007acc`, Visual Studio blue |
 | `tool_dir` | The tool folder, relative to `REPO`. The optional hooks guard it, and `release.py identify` compares it. Set it when `CLI_DIR` is neither `src/tools/tickets` nor `tools/tickets` | the hooks: the folder of `viewer_script` if set, else the first of `tools/tickets` and `src/tools/tickets` that holds `tickets.py`. `identify`: the first of `src/tools/tickets` and `tools/tickets` that holds it |
 | `tag_groups` | From 1.3.0: the tags a ticket must carry (step 6) | no groups |
+| `update_source` | From 1.5.0: the absolute path of the maintainer's `ticket-system/` folder on this machine, for the viewer's one-click update (`docs/upgrading/self-update.md`). A string; any other type stops the viewer with an error naming the key. Set it on the maintainer's machine; a copy from a clone of the GitHub repo leaves it out | absent: updates are off, and the viewer shows no badge |
 
 Unknown keys are ignored, so a project may keep its own there.
+
+**On the maintainer's machine, set `update_source`** (for example `"update_source": "C:\\path\\to\\source-repo\\ticket-system"`, backslashes doubled in JSON). From then on, the viewer shows a badge when a newer release is tagged, and one click installs it; there is no further adoption or upgrade procedure to follow by hand.
 
 **Check:** `python <CLI_DIR>/tickets.py --help` prints the line `<NAME> ticket store (.claude/tickets).` A mistake in the file prints `ERROR .claude/tickets/config.json: ...` naming the key instead.
 
@@ -208,7 +211,7 @@ Then read the sect. 5a table: it lists your peers, or says "none".
 
    | Row | Your value |
    |---|---|
-   | Ticket system version | `1.4.2`, as shipped |
+   | Ticket system version | `1.5.1`, as shipped |
    | CLI | `python <CLI_DIR>/tickets.py` |
    | Store | `.claude/tickets/` and the note on what each file holds, as shipped |
    | Store, absolute (for replies to a peer) | `<REPO>\.claude\tickets\`, the absolute path |
@@ -236,7 +239,7 @@ Then read the sect. 5a table: it lists your peers, or says "none".
   - that status tracks the work;
   - starting the viewer as a background task;
   - a pointer to the skill and the rules doc.
-- **`.gitignore`**: add `build/`, or at least `build/tickets/` (the viewer's pid file and log) and, with the hooks, `build/hooks/`. Add `__pycache__/` too, and `.claude/tickets/*.tmp`: the CLI writes a ticket to a `.tmp` name first, and a killed `new`, `set` or `import` can leave one behind; `tickets.py import --abort-interrupted` removes it once that process is gone. Add `.claude/tickets/tags.json.lock` as well: `author.py` holds that lock while it changes the tag store (step 6). And `.claude/scratch/`, your `SCRATCH` (body files, exports, the hooks self-test's folders).
+- **`.gitignore`**: add `build/`, or at least `build/tickets/` (the viewer's pid file and log, and from 1.5.0 the updater's work area, backups and staged files) and, with the hooks, `build/hooks/`. Add `__pycache__/` too, and `.claude/tickets/*.tmp`: the CLI writes a ticket to a `.tmp` name first, and a killed `new`, `set` or `import` can leave one behind; `tickets.py import --abort-interrupted` removes it once that process is gone. Add `.claude/tickets/tags.json.lock` as well: `author.py` holds that lock while it changes the tag store (step 6). And `.claude/scratch/`, your `SCRATCH` (body files, exports, the hooks self-test's folders).
 - **Line endings (`.gitattributes`).** The CLI writes tickets with LF, and the release's files are LF. Keep them so in your checkout: with `core.autocrlf=true`, the Git for Windows default, a branch switch or a merge checks the tool folder, the skill and the hooks out again with CRLF, and then `identify` still matches them but the bytes differ from the release. Add these lines to `REPO/.gitattributes`, with your `CLI_DIR` filled in:
 
   ```text
@@ -259,6 +262,7 @@ Run from `REPO`:
 
 ```bash
 python <CLI_DIR>/tickets.py validate
+python <CLI_DIR>/tickets.py readme
 echo "Smoke test of the adopted ticket system." | python <CLI_DIR>/tickets.py new --summary "Ticket system adopted: smoke test" --severity low --owner <an area> --author pm --tags tooling --body-file -
 python <CLI_DIR>/tickets.py set <FIRST> --status in_review
 python <CLI_DIR>/tickets.py validate
@@ -267,11 +271,13 @@ python <CLI_DIR>/author.py tags
 python <CLI_DIR>/serve.py
 curl -s http://127.0.0.1:<PORT>/api/health
 curl -s http://127.0.0.1:<PORT>/api/tickets
+curl -s http://127.0.0.1:<PORT>/api/update
 curl -s http://127.0.0.1:<PORT>/ | grep "<title>"
 python <CLI_DIR>/serve.py --stop
 ```
 
 - **First `validate`:** `OK: 0 tickets ...`.
+- **`readme`** (from 1.5.0): prints `wrote .claude/tickets/README.md`, the agents README: what changed for agents, per release, rewritten by every one-click update. Commit it with the rest.
 - **`new`:** reads the piped line as the body and prints `created <PREFIX>NNNN - ...`, with `FIRST` padded to four digits. This check files with `tickets.py new` on purpose: it tests the CLI, the only writer, which `author.py` writes through. Agents still file through `author.py new` (step 9), which takes the same flags and prints the same `created` line. If you set `tag_groups`, add to `--tags` a tag for each group whose `min` is above 0; `new` names any group it misses.
 - **`set`:** a bare number names the ticket; it prints `updated <PREFIX>NNNN (in_review low <area>)`.
 - **Second `validate`:** `OK: 1 tickets ...`.
@@ -280,6 +286,7 @@ python <CLI_DIR>/serve.py --stop
 - **`serve.py`:** prints `started (pid N, bound to 127.0.0.1)`. From 1.4.0 the viewer binds localhost by default, so no Windows firewall prompt appears. Add `--all-interfaces` only where the LAN must reach it (a phone, another PC); a master site on the same PC needs no flag; that start may prompt, and you never change firewall settings from a script or agent. (`--local-only` is still accepted and changes nothing.)
 - **`/api/health`:** returns `"service": "<MARKER>"`.
 - **`/api/tickets`:** returns your one ticket, whose `tags` holds `tooling`'s id. `tags` is the store keyed by id, `tag_format` is `2`, and `problems` is empty.
+- **`/api/update`** (from 1.5.0): `"installed"` is the version you installed and `"state"` is `"current"` with `update_source` set (`"available"` once a newer release is tagged), or `"off"` without it. `"unavailable"` comes with a `"reason"`: fix the path, or tell the maintainer.
 - **The page title:** `<title><NAME> Tickets</title>`, or your `page_title` as written if you set one.
 - **`--stop`:** prints `stopped the ticket viewer (pid N)`.
 - **The page:** start it again and open `http://127.0.0.1:<PORT>/`. It shows `<NAME> Tickets`, your icon and your ticket with an "In review" pill. A `#<PREFIX>NNNN` URL selects the ticket.
@@ -296,7 +303,7 @@ Then start the viewer for the user as a session background task: `python <CLI_DI
 
 **On the maintainer's machine,** send the `Ticket Master` session one message with:
 - your project name, `PREFIX`, `PORT` and `CLI_DIR`. Ticket Master runs `release.py identify` on your repo, which finds the tool through `tool_dir` or the two default folders, so it needs no `--cli-dir` from you;
-- the version you installed (`1.4.2`), and whether you installed the hooks;
+- the version you installed (`1.5.1`), and whether you installed the hooks;
 - the absolute path of your smoke-test ticket's JSON.
 
 Ticket Master adds you to the adopter table and announces future releases to you.

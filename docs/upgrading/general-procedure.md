@@ -37,18 +37,33 @@ Read the release's `CHANGELOG.md` entry first. It says whether the release is ma
      python <SRC>/tools/release.py merge-doc PAYLOAD/dot-claude/docs/tickets.md <REPO>/.claude/docs/tickets.md --base <SCRATCH>/ts-<old>/payload/dot-claude/docs/tickets.md --out <SCRATCH>/tickets.md
      ```
      `<old>` is the release you run now (your skill's version row); `--base` is its rules doc, the one your doc was ported from. With a clone, `git -C <SRC> show tickets-v<old>:payload/dot-claude/docs/tickets.md` gives the same file. `--out` must be a new file: the command refuses to write over any of its inputs.
-     It writes the release's text with your parts kept:
-     - the values (`<NAME>`, `<PREFIX>`, `<FIRST>`, `<PORT>`, `<CLI_DIR>`, `<REPO>`, `<SCRATCH>`): from `--set NAME=value`, then your `config.json` (found from the doc's place, or `--config`), then what your doc shows;
-     - each line holding a free-text placeholder (`<AREAS>`, `<AUTHORS>`, `<NEIGHBOURS: ...>`, `<DESIGN_DOC: ...>`, `<PEER>`, ...): the text you wrote there, or your line whole;
-     - every `<!-- project:begin <name> -->` ... `<!-- project:end <name> -->` block (one only you have is kept after the line it follows);
-     - with `--base`, a three-way merge: wherever the release left the base text unchanged, your version of it (an edit, an added line, a deleted line) is kept.
+     **The base is the release your copy runs now**, never the one before the new release: a 1.3.x copy upgrading to 1.4.2 uses `--base` from its own 1.3.x export. A wrong base makes the release's older changes look like yours, or yours like the release's.
+     It is a three-way merge (diff3, from 1.4.2), line hunk by line hunk, of your doc and the new release's doc against the base:
+     - first the values (`<NAME>`, `<PREFIX>`, `<FIRST>`, `<PORT>`, `<CLI_DIR>`, `<REPO>`, `<SCRATCH>`) are filled into the release's and the base's text, from `--set NAME=value`, then your `config.json` (found from the doc's place, or `--config`), then what your doc shows, then (`<REPO>` only) where your doc sits;
+     - a free-text placeholder (`<AREAS>`, `<AUTHORS>`, `<NEIGHBOURS: ...>`, `<DESIGN_DOC: ...>`, `<PEER>`, ...) is filled with the text you wrote in its place where a line around it shows it. Where you rewrote such a line and the release changed nothing on it but the placeholder itself (the same line with the placeholder, or its old wording, swapped), your line is kept; any other release change around it, or a placeholder line the release added next to your edit, is a conflict;
+     - the content of a `<!-- project:begin <name> -->` ... `<!-- project:end <name> -->` pair the release also has is yours; a pair only you have is your text like any other. The porting note between `template:begin`/`end` is dropped;
+     - then each hunk: text only you changed (an edit, an added line, a deleted line) is yours; text only the release changed is the release's; a change you both made alike is taken once; **text you both changed differently, or changed next to each other, is a conflict block** with both versions. Lines of the two sides are never mixed inside a hunk.
 
-     It prints each value and where it came from, `NOTE` lines for what it kept and for your lines that are the base's own wording of a line the release changed, and `LOOK` lines for what needs you. A LOOK is a line of yours the release text replaced (listed, and **not** in the merged doc), a value with no source, a changed template note, or a line picked by likeness.
-     **Exit 0 means no text of yours was dropped:** every line of your doc is in the merged doc or is the base release's own wording. Exit 2 means at least one LOOK. Exit 1 is an error, such as an unbalanced marker or `--out` naming an input. Without `--base` it cannot tell your edits from older release wording, so every line the release replaced is a LOOK.
-     Diff `<SCRATCH>/tickets.md` against your doc. For each LOOK line, put your text back where it belongs in `<SCRATCH>/tickets.md`, inside a `project:begin`/`end` pair so the next merge keeps it, or let it go if the release now says the same. Then copy the file over your doc. A heading you renumbered counts as a line the release changed: put your number back if you need it (the skill's Settings "Rules doc" row maps section names to your numbers).
+     A conflict block in the merged doc looks like this:
+     ```text
+     <<<<<<< project
+     your lines
+     ||||||| base 1.4.0
+     the base release's lines, with your values
+     =======
+     the new release's lines, with your values
+     >>>>>>> release 1.4.2
+     ```
+     Resolve each one by hand: write the text you want (often the release's lines with your addition put back, or yours with the release's new rule added), then delete the four marker lines and the base lines. Either side may be empty: an empty project side means you deleted that text and the release changed it. A line of yours that should survive every upgrade belongs inside a `project:begin`/`end` pair of your own.
+
+     It prints each value and where it came from, `NOTE` lines (what it filled, your blocks it kept, how many changes of yours it kept and of the release's it took), and `LOOK` lines: each conflict with its merged line numbers and your and the release's line numbers, a value with no source, a free-text place the release brought in that has no text of yours, a changed template note.
+     **Exit 0 means no conflicts and no LOOK.** No line of yours is dropped: each is in the merged doc, or is the base's own text that the release changed. Every release change is taken, except where the release changed nothing but a placeholder itself on a line you rewrote: there your line stands. Exit 2 means at least one LOOK; your lines are kept then too, inside the conflict blocks. Exit 1 is an error, and nothing is written: **no `--base`** (it is required: `give --base <the rules doc of the release you run now>`), an unbalanced marker, conflict marker lines (`<<<<<<<`, `|||||||`, `>>>>>>>`) left in your doc from an earlier merge, or `--out` naming an input.
+     **What to expect.** Where you left the release's text alone, you get the release's changes. Where you rewrote or added lines next to text the release changed, expect a conflict there; that is the merge refusing to guess, not a fault. A doc you reworked heavily gets several.
+     Diff `<SCRATCH>/tickets.md` against your doc, resolve every conflict, then copy the file over your doc. A heading you renumbered counts as a line you changed: your number is kept unless the release changed that heading too.
+     **`<REPO>`:** it is read off your doc or taken from where the doc sits. If a LOOK says it has no value, or a NOTE shows a scratch path (you merged a copy outside `<REPO>/.claude/docs/`), run it again with `--set REPO=<the absolute repository path>`.
      Without `merge-doc` (a release before it), take the rule changes the changelog lists by hand.
 
-   **Check:** `python <CLI_DIR>/tickets.py validate` passes on your existing tickets, and the rules-doc diff shows only the release's changes and the lines you placed.
+   **Check:** `python <CLI_DIR>/tickets.py validate` passes on your existing tickets; the merged doc holds no `<<<<<<<`, `|||||||`, `=======` or `>>>>>>>` line; and `merge-doc` run again on the installed doc, with the new release's doc as `--base` too, exits 0 and writes a file identical to it.
 8. **The skill:**
    - Take `PAYLOAD/dot-claude/skills/tickets/SKILL.md`.
    - Put your Settings rows back in, and set the version row to `<new>`.

@@ -2,6 +2,17 @@
 
 Versions use x.y.z numbering (user rule, 2026-09-30): **minor** means the configuration or a JSON structure changed, **patch** is anything smaller such as UI updates and fixes, and **major** is kept for large progress, which is not defined yet. Each entry lists the items it ships, by their numbers (`B<n>`) in the maintainer's internal backlog, and its upgrade steps. The steps in full are in `docs/UPGRADING.md`.
 
+## [1.4.2] - 2026-11-01
+
+**The rules-doc merge rebuilt as a three-way merge.** 1.4.1 was tagged but never published; 1.4.2 is that release with `merge-doc` redone, so a copy on 1.4.0 or 1.3.x upgrades straight to it. A **patch**: no configuration or JSON structure change. The steps are in `docs/UPGRADING.md` sect. 9, read for 1.4.2.
+
+- **`release.py merge-doc` is a hunk-level three-way merge (B64, from the maintainer's pre-release test on three adopter copies):** the values and the free-text places are filled into the release's and the base's text first, then each change hunk against `--base` is taken from the side that changed it, once if both changed it alike. Text both sides changed differently, or changed next to each other, is written as a conflict block (`<<<<<<< project`, `||||||| base <version>`, `=======`, `>>>>>>> release <version>`), each listed with its line numbers, and the command exits 2. It never mixes lines of the two sides in a hunk and never drops a project line, except the base's own text where the release changed it. The project's line is kept over the release's only where the release changed nothing on it but the placeholder itself; any other change around a placeholder, or a placeholder line added next to a project edit, is a conflict. `--base` is required (exit 1 without it), and a doc still holding conflict marker lines (`<<<<<<<`, `|||||||`, `>>>>>>>`) is refused. The 1.4.1 version garbled reflowed paragraphs and dropped project rules next to changed lines.
+- **The upgrade guide (B64):** `--base` is the rules doc of the release the copy runs now (a 1.3.x copy uses its own 1.3.x export, and skips sect. 8's rules-doc step); conflict blocks and their resolution, the `<REPO>` value (`--set REPO=`), and what to expect replace the "only the release's changes" promise. The check is a re-run with the new release's doc as `--base`: exit 0 and an identical file.
+- **Files changed since 1.4.1:** the source's `tools/release.py` and the upgrade docs. The tool folder, the skill, the rules-doc template and the hooks are as in 1.4.1.
+- **Ships:** B64 (with B61, B62 and B63 from 1.4.1).
+
+**Upgrade** from 1.4.0 or 1.3.x: as for 1.4.1 below (`docs/UPGRADING.md` sect. 9), with `--base` the rules doc of the release you run now, and every conflict block resolved before the doc is copied over.
+
 ## [1.4.1] - 2026-11-01
 
 **A merge tool for the rules doc, `done` enforced, and a quieter `identify`.** A **patch**: no configuration or JSON structure change (the schema, `config.json`, `tags.json` and the API's JSON are as in 1.4.0). The steps are in `docs/UPGRADING.md` sect. 9.

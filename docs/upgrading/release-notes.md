@@ -4,12 +4,19 @@
 
 *Part of the upgrade guide, `../UPGRADING.md`: read its opening first, for `SRC`, `REPO`, `SCRATCH` and `CLI_DIR`. A bare "sect. N" here is that guide's sect. N, and its index names the file. `ADOPTING.md` is `../ADOPTING.md`, an index too.*
 
+## 1.4.2 (2026-11-01)
+
+1.4.1 again, with the rules-doc merge rebuilt before it was published (`CHANGELOG.md` [1.4.2]). 1.4.1 was never published, so a copy on 1.4.0 or 1.3.x goes straight to 1.4.2: follow sect. 9, reading `1.4.1` there as 1.4.2, and the 1.4.1 note below. There is no configuration or JSON structure change, so it's a patch.
+- **`merge-doc` is a three-way merge** (B64, sect. 3 step 7, sect. 9 step 5). `--base` is the rules doc of **the release your copy runs now** (1.3.x copies too: their own 1.3.x export, not 1.4.0). Text only you changed is kept, text only the release changed is taken, and text you both changed, or changed next to each other, becomes a conflict block between `<<<<<<< project` and `>>>>>>> release <version>` lines (exit 2). Resolve each by hand and delete the markers. No line of yours is dropped, and lines of the two sides are never mixed. Your line is kept over the release's only where the release changed nothing on it but the placeholder itself. `--base` is required: without it the command exits 1.
+- **Expect conflicts where you rewrote text the release changed,** not "only the release's changes". The check is a re-run with the new release's doc as `--base` too: exit 0 and an identical file.
+- **The tool folder, the skill, the template and the hooks:** as in 1.4.1 below; only the source's `tools/release.py` and the upgrade docs changed.
+
 ## 1.4.1 (2026-11-01)
 
 The rules-doc merge tool, `done` enforced, and a quieter `identify` (`CHANGELOG.md` [1.4.1]; the maintainer sets the number and date at release). There is no configuration or JSON structure change, so it's a patch. From 1.4.0, follow sect. 9; from a 1.3.x copy, follow sect. 8 with this release in place of 1.4.0 (its step 2), then sect. 9 from step 4.
 - **The tool folder:** two files changed since 1.4.0: `tickets.py` and `author.py`. Copy those two, or everything in `PAYLOAD/src/tools/tickets/` except `icons/`. Never copy `icons/`, and don't re-bake.
 - **`done` needs a commit link** (B62): `set --status done`, `new --status done` and `author.py draft`/`new` refuse it while `links.commits` is empty and the command adds none. Old done tickets without one stay valid; `validate` prints one `WARNING ... done ticket(s) have no commit link ...` line and exits 0.
-- **The rules doc** merges with `release.py merge-doc ... --base <the 1.4.0 doc> --out <scratch file>` (B61, sect. 9 step 5); exit 0 means none of your text was dropped. The template gains `template:begin/end` markers around its porting note, an empty `project:begin rules` pair at the end of sect. 5, and capitals free-text placeholders, with `<NEIGHBOURS: ...>` and `<DESIGN_DOC: ...>` on lines of their own.
+- **The rules doc** merges with `release.py merge-doc ... --base <the doc of the release you run now> --out <scratch file>` (B61, sect. 9 step 5; rebuilt as a three-way merge in 1.4.2, see its note). The template gains `template:begin/end` markers around its porting note, an empty `project:begin rules` pair at the end of sect. 5, and capitals free-text placeholders, with `<NEIGHBOURS: ...>` and `<DESIGN_DOC: ...>` on lines of their own.
 - **The skill changed outside its rows** (its Close wording, B62). Take it whole, put your Settings rows back, set the version row to `1.4.1`, and have it reviewed before install.
 - **`identify`** prints per-file lines only for the closest release (B63); `--verbose` shows every release's.
 - **The hooks:** unchanged.

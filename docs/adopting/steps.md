@@ -30,17 +30,17 @@ It exits 0 either way; read the word. On Windows, `Get-NetTCPConnection -State L
 
 **From a clone of the GitHub repo:** skip the export. The clone is the release: `PAYLOAD` is `<SRC>/payload/`. (The public repo tags each release from 1.3.1 on, so the export below also works in a clone for 1.3.1 and later; you don't need it.)
 
-**Check:** `<SRC>/VERSION` reads `1.4.1`, and `git -C <SRC> status --short` prints nothing, so you install the release as published.
+**Check:** `<SRC>/VERSION` reads `1.4.2`, and `git -C <SRC> status --short` prints nothing, so you install the release as published.
 
 **On the maintainer's machine,** SRC is the maintainer's source folder. Export the release from it into your scratch:
 
 ```bash
-python <SRC>/tools/release.py export 1.4.1 <SCRATCH>/ticket-system-1.4.1
+python <SRC>/tools/release.py export 1.4.2 <SCRATCH>/ticket-system-1.4.2
 ```
 
-The export reads the release tag, `tickets-v1.4.1`, so it works only once that tag exists; before then it stops with `ERROR cannot read tickets-v1.4.1: ...`. (The maintainer's pre-release test exports a branch with `--ref <branch>`; an adopter never does.) Everything below copies from `<SCRATCH>/ticket-system-1.4.1/payload/` (call it `PAYLOAD`), never from SRC's working tree, which may be mid-change.
+The export reads the release tag, `tickets-v1.4.2`, so it works only once that tag exists; before then it stops with `ERROR cannot read tickets-v1.4.2: ...`. (The maintainer's pre-release test exports a branch with `--ref <branch>`; an adopter never does.) Everything below copies from `<SCRATCH>/ticket-system-1.4.2/payload/` (call it `PAYLOAD`), never from SRC's working tree, which may be mid-change.
 
-**Check:** the command prints `exported tickets-v1.4.1 to ...`, and `PAYLOAD/../VERSION` reads `1.4.1`.
+**Check:** the command prints `exported tickets-v1.4.2 to ...`, and `PAYLOAD/../VERSION` reads `1.4.2`.
 
 ## 3. Copy the files
 
@@ -208,7 +208,7 @@ Then read the sect. 5a table: it lists your peers, or says "none".
 
    | Row | Your value |
    |---|---|
-   | Ticket system version | `1.4.1`, as shipped |
+   | Ticket system version | `1.4.2`, as shipped |
    | CLI | `python <CLI_DIR>/tickets.py` |
    | Store | `.claude/tickets/` and the note on what each file holds, as shipped |
    | Store, absolute (for replies to a peer) | `<REPO>\.claude\tickets\`, the absolute path |
@@ -296,7 +296,7 @@ Then start the viewer for the user as a session background task: `python <CLI_DI
 
 **On the maintainer's machine,** send the `Ticket Master` session one message with:
 - your project name, `PREFIX`, `PORT` and `CLI_DIR`. Ticket Master runs `release.py identify` on your repo, which finds the tool through `tool_dir` or the two default folders, so it needs no `--cli-dir` from you;
-- the version you installed (`1.4.1`), and whether you installed the hooks;
+- the version you installed (`1.4.2`), and whether you installed the hooks;
 - the absolute path of your smoke-test ticket's JSON.
 
 Ticket Master adds you to the adopter table and announces future releases to you.

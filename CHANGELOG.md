@@ -2,6 +2,36 @@
 
 Versions use x.y.z numbering (user rule, 2026-09-30): **minor** means the configuration or a JSON structure changed, **patch** is anything smaller such as UI updates and fixes, and **major** is kept for large progress, which is not defined yet. Each entry lists the items it ships, by their numbers (`B<n>`) in the maintainer's internal backlog, and its upgrade steps. The steps in full are in `docs/UPGRADING.md`.
 
+## [1.5.4] - 2026-11-01
+
+**Nothing adopter-specific reaches the public repository.** A **patch**: no configuration, ticket schema, `tags.json` or API JSON change; no tool or viewer file changes for an adopter.
+
+- **The leak scan runs before the tag (B69):** `release.py check --release` now runs the public tree's leak scan over the files that would be published and FAILs on each hit, naming the file and line. Until now only `publish.py` ran it, after the tag.
+- **Published manifests carry no CHANGELOG text (B69):** the public tree's `releases/*.json` are written without their `changelog` and `agents` keys, which only the local updater reads. Hashes, files, version and `normalize` are unchanged, so `identify` and `export` work as before.
+- **Docs:** adopter names removed from the 1.5.3 changelog entry, the release notes and `self-update.md`.
+- **Changed files:** none in the payload (`src/`); the maintainer's `tools/release.py` and `tools/publish.py`, and the docs, change.
+- **Ships:** B69.
+
+Agents: none
+
+## [1.5.3] - 2026-11-01
+
+**localhost works, a status bar, and a harder self-update.** A **patch**: no configuration, ticket schema, `tags.json` or API JSON change. (The updater's internal `plan.json` gains an optional `release_tool` key; its format number is unchanged.) The first release installed through the viewer's one-click update.
+
+- **The viewer also listens on `::1` (B67, from DotR):** browsers that resolve `localhost` to `::1` first (the Claude in-app browser) got an empty board, since 1.4.0 bound `127.0.0.1` only. A second, IPv6-only listener now serves beside it in its own thread: `::1` by default, `::` with `--all-interfaces`. Where IPv6 or `::1` is unavailable it is skipped with a log line. `::1` counts as this PC for the token and the update routes; `/api/health` still reports the IPv4 bind, and the health check, `--stop`, the update's restart and every printed URL use `127.0.0.1`. The update's restart brings both listeners back.
+- **A status bar at the bottom of the viewer (B68, from the user via DotR):** left, "Refreshed <time>" (the last successful load or live event) and "Last ticket update <time>" (the newest `updated`); it turns red with the reason while `/api/tickets` is unreachable or the live stream is down. Right, the installed version (from `<CLI_DIR>/VERSION`, filled into the page), then "current" or the "Update x.y.z" button, moved there from the top bar. A LAN page shows the version only. The layout is padded so the bar covers nothing, in both themes and at phone width.
+- **Self-update hardening (B66, from adopter reviews):**
+  - the updater runs the **tagged** release's `release.py` (taken with `git show tickets-v<v>:./tools/release.py` into the work area, and run as if it sat in the source), for both exports and the rules-doc merge; the source's working-tree `release.py` no longer runs. A viewer on 1.5.0-1.5.2 still runs the working-tree copy for this one update, since its own `updater.py` prepares it;
+  - a CRLF checkout (an adopter's `.gitattributes`): a tool file or schema whose content is already the release's, with CRLF endings, is no longer replaced and listed as changed; the restore's byte checks stay byte for byte;
+  - the docs say the update request comes "from this PC" (any local process could send it; it can only install the latest tagged release), that no agent applies updates, and that the detached restart ends a session's foreground viewer (and how to reattach).
+- **Changed files:** `serve.py`, `updater.py`, `updater_helper.py`, `app.js`, `index.html`, `style.css`, the rules doc (`dot-claude/docs/tickets.md`, staged by the update for review and merge).
+- **Ships:** B66, B67, B68.
+
+Agents:
+- No agent applies an update: the user clicks "Update x.y.z" in the viewer's status bar. When the CLI says an update is waiting or done, tell the user and read .claude/tickets/README.md.
+- The viewer now answers on http://localhost:<PORT>/ and http://[::1]:<PORT>/ as well as http://127.0.0.1:<PORT>/.
+- After an update the viewer restarts detached; a session that ran it with --foreground starts it again (serve.py --stop, then --foreground).
+
 ## [1.5.2] - 2026-11-01
 
 **Fixes from the pre-broadcast upgrade test.** A **patch**: no configuration or JSON structure change.

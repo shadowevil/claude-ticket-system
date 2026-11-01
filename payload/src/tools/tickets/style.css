@@ -69,7 +69,13 @@ body {
 	flex-direction: column;
 	height: 100dvh;
 	overflow: hidden;
+	/* Room for the fixed status bar, so it never covers the list or the detail. */
+	padding-bottom: var(--statusbar-height);
 	-webkit-text-size-adjust: 100%;
+}
+
+:root {
+	--statusbar-height: calc(24px + env(safe-area-inset-bottom));
 }
 
 button,
@@ -175,16 +181,87 @@ pre,
 	padding-left: 18px;
 }
 
-/* --- the one-click update (B65): a top-bar badge and a dialog -------------------------------- */
+/* --- the status bar (B68): fixed to the bottom; refresh state left, version and update right ---- */
+
+.statusbar {
+	position: fixed;
+	left: 0;
+	right: 0;
+	bottom: 0;
+	z-index: 5;
+	display: flex;
+	align-items: center;
+	gap: 12px;
+	height: var(--statusbar-height);
+	padding: 0 max(8px, env(safe-area-inset-right)) env(safe-area-inset-bottom) max(12px, env(safe-area-inset-left));
+	background: var(--chrome);
+	border-top: 1px solid var(--border);
+	color: var(--muted);
+	font-size: 12px;
+	white-space: nowrap;
+}
+
+.statusbar.error {
+	background: #5a1d1d;
+	border-top-color: #be1100;
+	color: #ffffff;
+}
+
+:root[data-theme="light"] .statusbar.error {
+	background: #fde7e9;
+	border-top-color: #c72e0f;
+	color: #a1260d;
+}
+
+.statusbar-left,
+.statusbar-right {
+	display: flex;
+	align-items: center;
+	gap: 12px;
+	min-width: 0;
+}
+
+.statusbar-left {
+	flex: 1;
+	overflow: hidden;
+}
+
+.statusbar-right {
+	flex: none;
+	gap: 8px;
+}
+
+.statusbar-item {
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.statusbar-left .statusbar-item:first-child {
+	flex: none;
+	max-width: 100%;
+}
+
+.statusbar-current {
+	color: #89d185;
+}
+
+:root[data-theme="light"] .statusbar-current {
+	color: #2f7d32;
+}
+
+.statusbar-current[hidden] {
+	display: none;
+}
+
+/* --- the one-click update (B65): a status-bar badge and a dialog ----------------------------- */
 
 .update-badge {
 	display: inline-flex;
 	align-items: center;
-	height: 26px;
-	margin: 4px 6px 0 0;
-	padding: 0 10px;
+	height: 18px;
+	padding: 0 8px;
 	border: 1px solid var(--accent);
-	border-radius: 13px;
+	border-radius: 9px;
 	background: var(--accent);
 	color: var(--accent-text);
 	font-size: 12px;
@@ -1027,8 +1104,33 @@ select {
 /* --- phone and narrow windows: one view at a time, filters in a sheet ---------------------- */
 
 @media (max-width: 899px) {
+	:root {
+		--statusbar-height: calc(32px + env(safe-area-inset-bottom));
+	}
+
 	body {
 		font-size: 15px;
+	}
+
+	.statusbar {
+		gap: 8px;
+		font-size: 12px;
+	}
+
+	.statusbar-left {
+		gap: 8px;
+	}
+
+	/* At phone width the newest-edit text is cut first when space runs out; the refresh state stays whole. */
+	.statusbar-left .statusbar-item + .statusbar-item {
+		flex: 1;
+		min-width: 0;
+	}
+
+	.update-badge {
+		height: 26px;
+		padding: 0 10px;
+		border-radius: 13px;
 	}
 
 	.topbar {

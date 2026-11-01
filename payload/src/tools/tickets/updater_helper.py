@@ -11,7 +11,9 @@ plan.json (updater.prepare). This process then:
   4. starts the viewer again with the same port, bind and data folder, and waits for /api/health with its marker;
   5. on success stages the skill, the hooks and the rules doc and rewrites .claude/tickets/README.md; on a failure in
      2-4 it restores the backup, starts the old viewer and records rolled_back with the failing step's output.
-It never runs git. Its output goes to helper.log beside plan.json; its progress to build/tickets/update/status.json.
+The restarted viewer is detached: a viewer a Claude session ran in the foreground (a background task) is not
+reattached, so that task ends; start it again from the session (serve.py --stop, then serve.py --foreground).
+It never runs git in the adopter's repository. Its output goes to helper.log beside plan.json; its progress to build/tickets/update/status.json.
 Stdlib only; ASCII output.
 """
 
@@ -88,7 +90,8 @@ class helper(object):
 		"""Start the viewer in the tool folder with the old flags; (ok, output)."""
 		arguments = [self.plan["python"], os.path.join(self.plan["cli_dir"], "serve.py"), "--port",
 			str(self.viewer.get("port"))]
-		if self.viewer.get("bind") == "0.0.0.0":
+		# The viewer's IPv4 bind; serve.py opens the IPv6 listener beside it on its own (1.5.3, B67).
+		if self.viewer.get("bind") in ("0.0.0.0", "::"):
 			arguments.append("--all-interfaces")
 		if self.viewer.get("data_dir"):
 			arguments += ["--data-dir", self.viewer["data_dir"]]

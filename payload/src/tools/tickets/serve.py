@@ -1,7 +1,7 @@
 """Ticket viewer service: serves the read-only ticket site from the repo.
 
-    python <CLI_DIR>/serve.py               ensure it is running (idempotent), bound to 127.0.0.1, print the URLs
-    python <CLI_DIR>/serve.py --all-interfaces  same, bound to 0.0.0.0: the LAN (a phone) can reach it;
+    python <CLI_DIR>/serve.py               ensure it is running (idempotent), bound to 127.0.0.1 and ::1, print the URLs
+    python <CLI_DIR>/serve.py --all-interfaces  same, bound to 0.0.0.0 and ::: the LAN (a phone) can reach it;
                                             Windows may show a firewall prompt
     (--local-only, the opt-out before 1.4.0, is still accepted and changes nothing: localhost is the default)
     python <CLI_DIR>/serve.py --stop        stop the recorded server (its PID only)
@@ -16,6 +16,10 @@ DETACHED (no console window, survives the calling shell). The server records its
 build/tickets/serve.pid once it holds the port. VIEW ONLY: GET on a fixed route table, nothing else;
 tickets are read fresh from .claude/tickets on every /api/tickets request, and /api/events pushes a
 version to open pages whenever a ticket file changes. Rules: .claude/docs/tickets.md.
+
+Two listeners (B67, 1.5.3): the IPv4 one above, whose bind is the one recorded and reported, and an IPv6 one beside
+it in its own thread (::1, or :: with --all-interfaces), because many browsers resolve localhost to ::1 first. Where
+IPv6 or ::1 is unavailable it is skipped with a log line. The health check, --stop and printed URLs use 127.0.0.1.
 
 The one exception to GET only is the one-click update (B65, updater.py): GET /api/update and /api/update/status
 report it, and POST /api/update/apply starts it, only from this PC with the right Host, Origin and the page's token
@@ -220,7 +224,8 @@ def recover_interrupted_update(root):
 				try:
 					with open(target, "rb") as current:
 						if current.read() == saved:
-							# Never replaced (the swap stopped before it), or already put back.
+							# Never replaced (the swap stopped before it), or already put back. Raw bytes on purpose: the
+							# backup is a byte copy of the target, so a CRLF checkout compares equal until the swap.
 							continue
 				except OSError:
 					pass
@@ -303,6 +308,9 @@ log_path = os.path.join(state_dir, "serve.log")
 
 lan_bind = "0.0.0.0"
 local_bind = "127.0.0.1"
+# The IPv6 listener's address for each bind (B67): localhost may resolve to ::1 before 127.0.0.1.
+ipv6_listen = {local_bind: "::1", lan_bind: "::"}
+version_pattern = re.compile(r"^[0-9]+\.[0-9]+\.[0-9]+$")
 health_path = "/api/health"
 health_timeout_seconds = 1.5
 # A connect to a localhost port that holds a listener completes at once, but one to a free port is refused only after
@@ -372,7 +380,7 @@ def check_settings():
 	# Absent or empty, the title is "<store_name> Tickets", on the page and in the manifest alike.
 	page_values.update({"store_name": store_name, "short_name": short_name, "theme_key": theme_key,
 		"page_title": page_title or store_name + " Tickets", "id_max_digits": str(ticket_store.id_max_digits)
-		if ticket_store else ""})
+		if ticket_store else "", "version": installed_version()})
 	viewer_handler.server_version = server_header
 
 
@@ -422,7 +430,19 @@ page_values = {
 	"theme_key": "",
 	"page_title": "",
 	"id_max_digits": "",
+	"version": "",
 }
+
+
+def installed_version():
+	"""<CLI_DIR>/VERSION (x.y.z), shown in the page's status bar to every client; '' when missing or not x.y.z. Read with
+	strip(), so a CRLF checkout reads the same."""
+	try:
+		with open(os.path.join(viewer_dir, "VERSION"), "r", encoding="utf-8-sig") as handle:
+			value = handle.read(64).strip()
+	except (OSError, ValueError):
+		return ""
+	return value if version_pattern.match(value) else ""
 placeholder_pattern = re.compile(r"\{\{([a-z_]+)\}\}")
 
 # The one-click update (B65). The token is made at start, kept in memory only and put in the page (a <meta>) for a
@@ -751,15 +771,40 @@ class viewer_server(http.server.ThreadingHTTPServer):
 	# Never share the port with a second server (Windows allows a silent double bind otherwise).
 	allow_reuse_address = False
 
-	def __init__(self, bind_address, port):
+	def __init__(self, bind_address, port, listen=None):
+		"""bind_address is the viewer's bind (127.0.0.1 or 0.0.0.0), the one /api/health reports and an update restarts
+		with; listen is the address this socket takes, when it differs (the IPv6 listener's ::1 or ::)."""
 		self.bind_address = bind_address
-		super().__init__((bind_address, port), viewer_handler)
+		listen = listen or bind_address
+		if ":" in listen:
+			self.address_family = socket.AF_INET6
+		super().__init__((listen, port), viewer_handler)
 
 	def server_bind(self):
 		# Windows also lets a specific address bind beside a wildcard one; exclusive use refuses that too.
 		if hasattr(socket, "SO_EXCLUSIVEADDRUSE"):
 			self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+		if self.address_family == socket.AF_INET6 and hasattr(socket, "IPV6_V6ONLY"):
+			# IPv6 only: the IPv4 side is the other listener's.
+			self.socket.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_V6ONLY, 1)
 		super().server_bind()
+
+
+def start_ipv6_listener(port, bind_address):
+	"""The IPv6 listener beside the IPv4 one (B67), serving in a daemon thread: ::1 for the default bind, :: for
+	--all-interfaces. None, with a log line, where IPv6 or that address is unavailable (the IPv4 URLs still work)."""
+	listen = ipv6_listen.get(bind_address, "::1")
+	if not socket.has_ipv6:
+		log_line("IPv6 listener skipped: this Python has no IPv6 support; use http://127.0.0.1:{}/".format(port))
+		return None
+	try:
+		server = viewer_server(bind_address, port, listen)
+	except (OSError, ValueError) as error:
+		log_line("IPv6 listener [{}]:{} skipped ({}); use http://127.0.0.1:{}/".format(listen, port, error, port))
+		return None
+	threading.Thread(target=server.serve_forever, name="ipv6-listener", daemon=True).start()
+	log_line("serving on [{}]:{} too (pid {})".format(listen, port, os.getpid()))
+	return server
 
 
 def lan_address():
@@ -1160,6 +1205,7 @@ def run_foreground(port, bind_address):
 			"--stop will not reach it".format(other.get("pid"), other.get("port"), os.getpid()))
 		log_line("note: " + note)  # echoed to the console too
 	log_line("serving on {}:{} (pid {})".format(bind_address, port, os.getpid()))
+	server6 = start_ipv6_listener(port, bind_address)
 	log_update_check()
 	if sys.stdout is not None:
 		try:
@@ -1172,6 +1218,9 @@ def run_foreground(port, bind_address):
 	except KeyboardInterrupt:
 		pass
 	finally:
+		if server6 is not None:
+			server6.shutdown()
+			server6.server_close()
 		server.server_close()
 		log_line("stopped (pid {})".format(os.getpid()))
 		remove_pid_file(os.getpid())
@@ -1200,8 +1249,8 @@ def main():
 	parser = argparse.ArgumentParser(description="{} ticket viewer (read-only).".format(shown_name), allow_abbrev=False)
 	parser.add_argument("--port", type=int, help="serve on this port instead of config.json's viewer_port")
 	bind_choice = parser.add_mutually_exclusive_group()
-	bind_choice.add_argument("--all-interfaces", action="store_true", help="bind 0.0.0.0, reachable from the LAN (the "
-		"default is 127.0.0.1 only)")
+	bind_choice.add_argument("--all-interfaces", action="store_true", help="bind 0.0.0.0 and ::, reachable from the "
+		"LAN (the default is 127.0.0.1 and ::1, this PC only)")
 	# Before 1.4.0 the default was the LAN and this flag opted out; it is kept so existing start lines still work.
 	bind_choice.add_argument("--local-only", action="store_true", help="bind 127.0.0.1 (the default; kept for older "
 		"start lines)")

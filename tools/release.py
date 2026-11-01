@@ -962,6 +962,17 @@ def command_check(args):
 		problems.append(blocked)
 	elif blocked:
 		warnings.append(blocked + " (check --release fails on this)")
+	if releasing:
+		# B69: the public tree's leak scan (publish.py's word list) over the files publish would ship, before the tag.
+		# publish.py is the maintainer's own and is not in a public clone, where there is nothing to publish.
+		try:
+			import publish
+		except ImportError:
+			publish = None
+		if publish is not None and os.path.isdir(system_dir):
+			for relative, number, word in publish.working_tree_hits():
+				problems.append("public leak {!r} in {}{} (publish.py public_leftovers; fix it before tagging)".format(
+					word, relative, "" if number is None else ":{}".format(number)))
 	for warning in uncommitted_warnings():
 		print(warning)
 	for warning in warnings:

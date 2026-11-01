@@ -5,15 +5,22 @@
     tickets.py         `readme` (write_first_readme) and the one-time pointer after an update
 
 The source is this machine's ticket-system/ folder, named by config.json's update_source (absent or empty: updates
-are off). A release is read only through `<update_source>/tools/release.py export <x.y.z>`, which reads the tag
-tickets-v<x.y.z> from git, so unreleased work on whatever branch the source has checked out is never installed. The
-latest release is the highest x.y.z with a releases/<x.y.z>.json manifest and that tag; the installed one is
-<CLI_DIR>/VERSION.
+are off). A release is read only from its tag, tickets-v<x.y.z>, so unreleased work on whatever branch the source has
+checked out is never installed or run: the release tool itself is the TAGGED one (1.5.3, B66), taken from the tag
+with `git -C <update_source> show tickets-v<x.y.z>:./tools/release.py` into the work area and run by run_release_tool
+as if it sat at <update_source>/tools/release.py (so it finds the source's git repository). It exports the release
+and, with the same tagged tool, the installed release (the merge base); it also merges the rules doc. The source's
+working-tree release.py never runs. The latest release is the highest x.y.z with a releases/<x.y.z>.json manifest
+and that tag; the installed one is <CLI_DIR>/VERSION.
 
 Work area: <repo>/build/tickets/ (git-ignored): update.lock (one apply at a time), update/status.json, and
-update/<x.y.z>/ holding the export, the export of the installed release (the merge base), the merged schema, the
-backup, plan.json and helper.log. Staged items go to staged/<x.y.z>/. Nothing here runs git in the adopter's
-repository, and nothing is committed.
+update/<x.y.z>/ holding the tagged release tool (release-tool/release.py), the export, the export of the installed
+release, the merged schema, the backup, plan.json and helper.log. Staged items go to staged/<x.y.z>/. Nothing here
+runs git in the adopter's repository (only read-only git in the source), and nothing is committed.
+
+Line endings: an adopter whose .gitattributes checks text out as CRLF has CRLF tool files. A comparison that means
+"same content" (is this tool file already the release's? is the merged schema already the project's?) ignores CRLF
+against LF (same_content); one that means "the same bytes" (has the restore already put the backup back?) does not.
 
 Stdlib only; ASCII console output; files are UTF-8 with LF.
 """
@@ -451,12 +458,55 @@ def verify_export(export_dir, manifest):
 	return problems
 
 
-def export_release(source, version, destination):
-	"""Run the source's release.py export into destination (made fresh); a problem line or None."""
+# Runs a tagged release.py (argv[1]) as though it were the file argv[2] (<update_source>/tools/release.py): release.py
+# finds its ticket-system folder, and so the git repository, from its own __file__. Started with -I, so neither the
+# environment nor the current folder adds anything to the import path.
+release_launcher = ("import sys\n"
+	"tool, home = sys.argv[1], sys.argv[2]\n"
+	"sys.argv = [home] + sys.argv[3:]\n"
+	"with open(tool, 'rb') as handle:\n"
+	"    code = compile(handle.read(), home, 'exec')\n"
+	"exec(code, {'__name__': '__main__', '__file__': home, '__builtins__': __builtins__})\n")
+release_tool_name = os.path.join("release-tool", "release.py")
+
+
+def tagged_release_tool(source, version, destination):
+	"""Write tools/release.py as tagged tickets-v<version> in the source to destination; a problem line or None. The
+	blob is read as committed (git show applies no filter), never from the source's working tree."""
+	options = {"stdin": subprocess.DEVNULL, "stdout": subprocess.PIPE, "stderr": subprocess.PIPE,
+		"timeout": git_timeout_seconds}
+	if os.name == "nt":
+		options["creationflags"] = create_no_window
+	try:
+		result = subprocess.run(["git", "-C", source, "show", "{}{}:./tools/release.py".format(tag_prefix, version)],
+			**options)
+	except subprocess.TimeoutExpired:
+		return "git show of the tagged release.py timed out"
+	except OSError as error:
+		return "cannot run git: {}".format(error)
+	if result.returncode != 0 or not result.stdout:
+		return "cannot read tools/release.py at {}{}: {}".format(tag_prefix, version, ascii_text(last_lines(
+			result.stderr.decode("utf-8", "replace"), 2)) or "empty")
+	try:
+		os.makedirs(os.path.dirname(destination), exist_ok=True)
+		with open(destination, "wb") as handle:
+			handle.write(result.stdout)
+	except OSError as error:
+		return "cannot write the tagged release.py: {}".format(error)
+	return None
+
+
+def run_release_tool(tool, source, arguments, cwd, timeout, python=None):
+	"""(exit code, output) of the tagged release tool `tool` run with arguments, as <source>/tools/release.py."""
+	return run([python or sys.executable, "-I", "-B", "-c", release_launcher, tool,
+		os.path.join(source, "tools", "release.py")] + list(arguments), cwd=cwd, timeout=timeout)
+
+
+def export_release(source, version, destination, tool):
+	"""Run the tagged release tool's export of version into destination (made fresh); a problem line or None."""
 	remove_tree(destination)
 	os.makedirs(os.path.dirname(destination), exist_ok=True)
-	code, output = run([sys.executable, "-B", os.path.join(source, "tools", "release.py"), "export", version, destination],
-		cwd=source, timeout=export_timeout_seconds)
+	code, output = run_release_tool(tool, source, ["export", version, destination], source, export_timeout_seconds)
 	if code != 0:
 		return "release.py export {} failed: {}".format(version, ascii_text(last_lines(output, 3)))
 	return None
@@ -490,10 +540,28 @@ def replaced_tool_files(manifest):
 
 
 def same_bytes(left, right):
+	"""Byte identity: the restore's "already put back" check, where the backup is a byte copy of the target."""
 	try:
 		return os.path.getsize(left) == os.path.getsize(right) and sha256_file(left) == sha256_file(right)
 	except OSError:
 		return False
+
+
+def same_content(left, right):
+	"""Byte identity once CRLF is read as LF: a tool file or schema in a CRLF checkout (an adopter's .gitattributes) is
+	the release's file when only its line endings differ, and is neither replaced nor listed as changed."""
+	if same_bytes(left, right):
+		return True
+	try:
+		if max(os.path.getsize(left), os.path.getsize(right)) > manifest_read_max:
+			return False
+		with open(left, "rb") as handle:
+			left_bytes = handle.read()
+		with open(right, "rb") as handle:
+			right_bytes = handle.read()
+	except OSError:
+		return False
+	return left_bytes.replace(b"\r\n", b"\n") == right_bytes.replace(b"\r\n", b"\n")
 
 
 inline_array_width = 100
@@ -601,8 +669,13 @@ def prepare_steps(repo, cli_dir, config, version, viewer, paths, work):
 	remove_tree(work)
 	export_dir = os.path.join(work, "export")
 	base_dir = os.path.join(work, "base")
+	# The new release's own release.py, from its tag: the source's working tree may hold unreleased tool code.
+	release_tool = os.path.join(work, release_tool_name)
+	problem = tagged_release_tool(source, version, release_tool)
+	if problem:
+		raise stop_update(problem)
 	for wanted, folder in ((version, export_dir), (installed, base_dir)):
-		problem = export_release(source, wanted, folder)
+		problem = export_release(source, wanted, folder, release_tool)
 		if problem:
 			raise stop_update(problem)
 	write_status(paths, "running", step="verifying")
@@ -657,10 +730,11 @@ def prepare_steps(repo, cli_dir, config, version, viewer, paths, work):
 	for relative in wanted_files:
 		target = tool_target(cli_dir, relative)
 		source_file = payload_path(export_dir, relative)
-		if os.path.isfile(target) and same_bytes(source_file, target):
+		# Already the release's (a CRLF checkout of the same file included): left alone, and not listed as changed.
+		if os.path.isfile(target) and same_content(source_file, target):
 			continue
 		copies.append({"source": source_file, "target": target, "shown": shown_path(repo, target)})
-	if merged_path and not same_bytes(merged_path, project_schema_path):
+	if merged_path and not same_content(merged_path, project_schema_path):
 		copies.append({"source": merged_path, "target": project_schema_path, "shown": shown_path(repo, project_schema_path)})
 	copies.sort(key=lambda item: os.path.basename(item["target"]) == "VERSION")
 	for relative in replaced_tool_files(base):
@@ -677,7 +751,8 @@ def prepare_steps(repo, cli_dir, config, version, viewer, paths, work):
 			added.append(item["target"])
 
 	plan = {"format": plan_format, "version": version, "installed": installed, "repo": repo, "cli_dir": cli_dir,
-		"work": work, "export": export_dir, "base": base_dir, "source": source, "python": sys.executable,
+		"work": work, "export": export_dir, "base": base_dir, "source": source, "release_tool": release_tool,
+		"python": sys.executable,
 		"copies": copies, "deletions": deletions, "backed_up": backed_up, "added": added,
 		"schema": project_schema_path, "viewer": viewer, "status": paths["status"], "lock": paths["lock"],
 		"created": utc_now()}
@@ -718,7 +793,8 @@ def restore(plan):
 		temp = None
 		try:
 			if same_bytes(item["backup"], item["target"]):
-				# Never replaced (the swap stopped before it), or already put back.
+				# Never replaced (the swap stopped before it), or already put back. Bytes, not same_content: the backup
+				# is a byte copy, and only the target's own bytes (CRLF included) count as restored.
 				continue
 			temp = item["target"] + ".restore"
 			shutil.copy2(item["backup"], temp)
@@ -844,9 +920,18 @@ def stage(plan, log=None):
 	if raw_hash(release, doc_rel) != raw_hash(base, doc_rel) and os.path.isfile(project_doc):
 		out = os.path.join(staged, "tickets.md")
 		os.makedirs(staged, exist_ok=True)
-		code, output = run([plan["python"], "-B", os.path.join(plan["source"], "tools", "release.py"), "merge-doc",
-			payload_path(plan["export"], doc_rel), project_doc, "--base", payload_path(plan["base"], doc_rel),
-			"--out", out], cwd=repo, timeout=120)
+		# The tagged release tool prepare extracted; a plan from a viewer before 1.5.3 has none, so take it from the tag
+		# now. The source's working-tree release.py is never run.
+		tool = plan.get("release_tool")
+		problem = None
+		if not isinstance(tool, str) or not os.path.isfile(tool):
+			tool = os.path.join(plan["work"], release_tool_name)
+			problem = tagged_release_tool(plan["source"], version, tool)
+		if problem:
+			code, output = 1, problem
+		else:
+			code, output = run_release_tool(tool, plan["source"], ["merge-doc", payload_path(plan["export"], doc_rel),
+				project_doc, "--base", payload_path(plan["base"], doc_rel), "--out", out], repo, 120, plan["python"])
 		if log:
 			log("merge-doc exit {}:\n{}".format(code, output))
 		if code == 0:

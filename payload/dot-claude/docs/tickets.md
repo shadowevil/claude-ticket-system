@@ -235,8 +235,8 @@ python <CLI_DIR>/author.py comment <id> --author pm --body-file <file, or - for 
 ## 4. The viewer
 
 ```
-python <CLI_DIR>/serve.py                   ensure it is running, bound to 127.0.0.1; prints the URLs
-python <CLI_DIR>/serve.py --all-interfaces  same, bound to 0.0.0.0: the LAN (a phone, another PC) can reach it
+python <CLI_DIR>/serve.py                   ensure it is running, bound to 127.0.0.1 and ::1; prints the URLs
+python <CLI_DIR>/serve.py --all-interfaces  same, bound to 0.0.0.0 and ::: the LAN (a phone, another PC) can reach it
 python <CLI_DIR>/serve.py --stop            stop the recorded server
 python <CLI_DIR>/serve.py --foreground      run in this console, Ctrl+C to stop
 ```
@@ -247,6 +247,9 @@ python <CLI_DIR>/serve.py --foreground      run in this console, Ctrl+C to stop
   `--all-interfaces` is the opt-in for the user's phone or another machine on the network (a tool on the same PC, such as a master
   site, reaches it over 127.0.0.1 and needs no flag); it prints `http://127.0.0.1:<PORT>/` and the LAN address the PC is reached on.
   `--local-only`, the opt-out before 1.4.0, is still accepted and changes nothing.
+  **From 1.5.3 it also listens on IPv6** (`::1`, or `::` with `--all-interfaces`), so `http://localhost:<PORT>/` works
+  in browsers that resolve localhost to `::1` first (the Claude in-app browser). Where IPv6 is unavailable that
+  listener is skipped with a line in the log. Printed URLs, the health check and `--stop` use `127.0.0.1`.
 - **Every ticket viewer's port is unique on this machine.** 18000-19000 is the suggested range. If your machine has
   its own rule for viewer ports (for example a dashboard that only scans a range), that rule wins. A new port is
   not listening and not configured by another board on this machine; on the maintainer's machine, the Adopters table
@@ -255,7 +258,8 @@ python <CLI_DIR>/serve.py --foreground      run in this console, Ctrl+C to stop
 - **In a Claude session it runs as a background task**, so the user can see it running: `serve.py --stop` (clears
   a detached one), then `python -u <CLI_DIR>/serve.py --foreground` with run-in-background. A foreground run
   records its PID like a detached one and echoes every log line (requests, live-stream connects) to its output.
-  Closing the session ends it; the next session starts it again.
+  Closing the session ends it; the next session starts it again. A one-click update (below) restarts the viewer
+  detached, which ends that background task; to reattach, `serve.py --stop`, then the foreground start again.
 - **Starting is idempotent and cheap**: if our server already answers `/api/health` on the port with our marker
   (`viewer_service`), it prints the URLs and exits 0. Otherwise it starts itself **detached** (no console window,
   survives the calling shell), records `{pid, port, bind, script, started, service, cwd, created}` in `build/tickets/serve.pid`, waits
@@ -277,14 +281,17 @@ python <CLI_DIR>/serve.py --foreground      run in this console, Ctrl+C to stop
   listing and no path traversal (a path is matched exactly, never joined). It sends a Content-Security-Policy
   allowing scripts only from itself, and never a CORS header.
 - **The one-click update** (1.5.0; the source's `docs/upgrading/self-update.md`). With `update_source` set, the
-  page shows a badge, "Update x.y.z", when a newer release is tagged there; a click shows its changelog and asks to
-  confirm. The update exports the release from its tag, checks every file against its manifest, merges the schema
+  page shows a badge, "Update x.y.z", at the right of the status bar when a newer release is tagged there; a click
+  shows its changelog and asks to confirm. **The user clicks it; no agent applies an update** (an agent tells the
+  user one is waiting). The update exports the release from its tag with that tag's own `release.py`, checks every file against its manifest, merges the schema
   (our `x-project-owned` values kept; a local edit elsewhere stops it), backs up, replaces the tool files and the
   schema, runs `validate` and restarts the viewer; any failure puts the backup back. The skill, the hooks and this
   doc are only staged in `build/tickets/staged/<version>/` for review, and nothing is committed: the PM reviews and
-  commits. The one POST, `/api/update/apply`, is accepted only from this PC, with `Host` and `Origin` naming
+  commits. The one POST, `/api/update/apply`, is accepted only from this PC (a loopback client, `127.0.0.1` or
+  `::1`), with `Host` and `Origin` naming
   `127.0.0.1:<PORT>`, `localhost:<PORT>` or `[::1]:<PORT>` and the page's token (made at start, memory only, never given to a LAN
-  client); anything else is 403. Without `update_source` there is no badge and the POST is always 403. A
+  client); anything else is 403. "From this PC", not "from a browser": any local process could send it, and all it
+  can do is install the latest tagged release. Without `update_source` there is no badge and the POST is always 403. A
   `serve.py` start after an update that was cut off part-way puts the backup back first.
 - **Live updates**: `/api/events` is a server-sent-events stream. Each open page's stream checks the ticket folder
   every second (a digest of file names, sizes and mtimes) and pushes a `tickets` event on connect and on every
@@ -300,6 +307,10 @@ python <CLI_DIR>/serve.py --foreground      run in this console, Ctrl+C to stop
   first, 10 at a time with a "load more" button. `#<PREFIX>0005` in the URL selects a ticket, so a link can point
   at one; a bare `<PREFIX>NNNN` in a body or comment becomes a link. A peer's id stays text: it is not on this
   board.
+- **The status bar** (1.5.3), fixed to the bottom: on the left "Refreshed <time>" (the last successful load or live
+  event) and "Last ticket update <time>" (the newest `updated`, in local time); it turns red with the reason while
+  `/api/tickets` cannot be reached or the live stream is down. On the right the installed version, then "current"
+  or the "Update x.y.z" button (a page on this PC only; a LAN page shows the version alone).
 - **On a phone** (under 900 px): the list is full screen, a ticket opens as its own view with a back control, and
   the phone's back gesture works (the hash is the history). Filters sit in a bottom sheet. Nothing scrolls
   sideways at 360 px - a wide table or code block scrolls inside its own box.

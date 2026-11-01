@@ -4,6 +4,19 @@
 
 *Part of the upgrade guide, `../UPGRADING.md`: read its opening first, for `SRC`, `REPO`, `SCRATCH` and `CLI_DIR`. A bare "sect. N" here is that guide's sect. N, and its index names the file. `ADOPTING.md` is `../ADOPTING.md`, an index too.*
 
+## 1.5.4 (2026-11-01)
+
+Public-tree hygiene only (`CHANGELOG.md` [1.5.4]): the release check now catches adopter or machine names in the shipped files before the tag, and the public manifests drop their changelog text. Nothing to do; no tool, viewer, schema or `config.json` change reaches a board.
+
+## 1.5.3 (2026-11-01)
+
+The viewer listens on `::1` too, gains a status bar, and the self-update is hardened (`CHANGELOG.md` [1.5.3]). A patch: nothing in `config.json`, the schema or `tags.json` changes. From 1.5.0-1.5.2 with `update_source` set, the viewer offers it as an update: the user clicks it (no agent applies it). Then:
+
+- **The viewer restarts detached.** A viewer a session ran with `--foreground` ends with the update; start it again (`serve.py --stop`, then `serve.py --foreground` as a background task). `http://localhost:<PORT>/` now works in the in-app browser.
+- **The rules doc** gains the IPv6 listener and the status bar (sect. 4) and the "from this PC" wording; the update stages it merged, in `build/tickets/staged/1.5.3/tickets.md`, for review. The skill does not change.
+- **A CRLF checkout:** files whose content did not change are no longer rewritten; the changed ones arrive with LF endings and git normalizes them on commit.
+- A copy on 1.4.x installs the newest 1.5.x by hand with sect. 10.
+
 ## 1.5.2 (2026-11-01)
 
 Docs and update messages (`CHANGELOG.md` [1.5.2]). A copy on 1.4.x installs the newest 1.5.x by hand with sect. 10, reading `<new>` there. From 1.5.0 or 1.5.1 the viewer offers it as an update; nothing else to do. The update's changed list now gives repository-relative paths and names `.claude/tickets/README.md`.

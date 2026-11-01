@@ -1,6 +1,4 @@
 {
-  "agents": [],
-  "changelog": "**Fixes from the pre-broadcast upgrade test.** A **patch**: no configuration or JSON structure change.\n\n- The 1.4.x upgrade guide (`docs/upgrading/1.4.x-to-1.5.0.md`) reads `<new>`, the newest 1.5.x, instead of a fixed 1.5.0; it says to restart the viewer after setting `update_source` (also in `self-update.md`), what `validate` prints, and to expect a few rules-doc merge conflicts.\n- The update's changed list and the commit `ACTION` line give repository-relative paths (`src/tools/tickets/app.js`) and name `.claude/tickets/README.md`.\n- The update dialog no longer repeats the `Agents:` lines below the changelog, which already shows them.\n\nAgents: none",
   "files": {
     "dot-claude/docs/tickets.md": {
       "exact": "0dc5ad5c26495a8d6b0225d2f62fa2afec3702228d647d0e658771aae7ab1796",

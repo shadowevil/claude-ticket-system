@@ -178,10 +178,78 @@
 				show_problems(data.problems || []);
 				fill_filter_options();
 				render_all();
+				health.refreshed = new Date();
+				health.load_error = null;
+				render_statusbar();
 			})
 			.catch(function (error) {
 				show_problems(["Could not load /api/tickets: " + error.message]);
+				health.load_error = error.message || "no answer";
+				render_statusbar();
 			});
+	}
+
+	/* --- the status bar (B68) ------------------------------------------------------------- */
+
+	/* Left: when the board last refreshed (a load, or a live-stream event) and the newest `updated` across the tickets;
+	   an error state while /api/tickets fails or the live stream is down. Right: the installed version (from the page,
+	   so a LAN page shows it too), then "current" or the update button (check_update; a page on this PC only). */
+	var health = { refreshed: null, load_error: null, live_down: false };
+	var installed_version = /^[0-9]+\.[0-9]+\.[0-9]+$/.test(page_data.version || "") ? page_data.version : "";
+
+	function two(value) {
+		return (value < 10 ? "0" : "") + value;
+	}
+
+	function clock_time(date) {
+		return two(date.getHours()) + ":" + two(date.getMinutes()) + ":" + two(date.getSeconds());
+	}
+
+	// An ISO 8601 UTC stamp in this browser's local time, "YYYY-MM-DD HH:MM"; the text as given when it does not parse.
+	function local_stamp(timestamp) {
+		var date = new Date(timestamp);
+		if (isNaN(date.getTime())) {
+			return String(timestamp);
+		}
+		return date.getFullYear() + "-" + two(date.getMonth() + 1) + "-" + two(date.getDate()) + " " +
+			two(date.getHours()) + ":" + two(date.getMinutes());
+	}
+
+	function newest_update() {
+		var newest = "";
+		var newest_time = -Infinity;
+		state.tickets.forEach(function (ticket) {
+			var time = Date.parse(ticket.updated);
+			if (typeof ticket.updated === "string" && !isNaN(time) && time > newest_time) {
+				newest_time = time;
+				newest = ticket.updated;
+			}
+		});
+		return newest;
+	}
+
+	function render_statusbar() {
+		var bar = $("statusbar");
+		var refreshed = $("status-refreshed");
+		var since = health.refreshed ? " (last refresh " + clock_time(health.refreshed) + ")" : "";
+		if (health.load_error) {
+			refreshed.textContent = "Cannot reach the viewer: " + health.load_error + since;
+		} else if (health.live_down) {
+			refreshed.textContent = "Live updates down, the viewer may have stopped" + since;
+		} else if (health.refreshed) {
+			refreshed.textContent = "Refreshed " + clock_time(health.refreshed);
+		} else {
+			refreshed.textContent = "Loading...";
+		}
+		refreshed.title = health.refreshed ? "Last successful load or live event: " + health.refreshed.toString() : "";
+		bar.classList.toggle("error", !!(health.load_error || health.live_down));
+		var newest = newest_update();
+		var latest = $("status-latest");
+		latest.textContent = newest ? "Last ticket update " + local_stamp(newest) : state.tickets.length ? "" : "No tickets";
+		latest.title = newest ? newest : "";
+		var version = $("status-version");
+		version.textContent = installed_version ? "v" + installed_version : "version unknown";
+		version.title = installed_version ? "Ticket system " + installed_version + " (this copy)" : "No VERSION file in the tool folder";
 	}
 
 	/* Live updates: the server pushes the ticket folder's version on connect and whenever a file
@@ -196,12 +264,20 @@
 		source.addEventListener("tickets", function (event) {
 			if (live_version !== null && event.data !== live_version) {
 				load();
+			} else {
+				// The stream answered: the board is as fresh as the folder (a changed version refreshes through load).
+				health.refreshed = new Date();
 			}
 			live_version = event.data;
+			health.live_down = false;
+			render_statusbar();
 			$("refresh-button").classList.add("live");
 		});
 		source.addEventListener("error", function () {
 			$("refresh-button").classList.remove("live");
+			// Fired on every failed (re)connect; the browser keeps retrying, and the next event clears it.
+			health.live_down = source.readyState !== 1;
+			render_statusbar();
 		});
 	}
 
@@ -873,6 +949,12 @@
 	}
 
 	function check_update() {
+		// Only a page on this PC (serve.py gave it the token) asks; a LAN page shows the version alone.
+		if (!update_token()) {
+			$("update-badge").hidden = true;
+			$("status-current").hidden = true;
+			return Promise.resolve(null);
+		}
 		return get_json("/api/update").then(function (info) {
 			update_info = info;
 			var badge = $("update-badge");
@@ -883,6 +965,9 @@
 			} else {
 				badge.hidden = true;
 			}
+			var current = $("status-current");
+			current.hidden = info.state !== "current";
+			current.title = info.latest ? "The newest tagged release is " + info.latest : "";
 			if (info.busy && !update_in_progress) {
 				// Opened (or reloaded) while an update runs.
 				begin_waiting(info.status && info.status.version, true);
@@ -890,6 +975,7 @@
 			return info;
 		}).catch(function () {
 			$("update-badge").hidden = true;
+			$("status-current").hidden = true;
 		});
 	}
 
@@ -1146,6 +1232,7 @@
 				close_dialog();
 			}
 		});
+		render_statusbar();
 		load();
 		connect_live();
 		show_remembered_result();

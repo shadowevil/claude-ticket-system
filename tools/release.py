@@ -11,6 +11,11 @@
                                                            folder inside the repo holding tickets.py), else
                                                            src/tools/tickets or tools/tickets
     python ticket-system/tools/release.py export <x.y.z> <folder>  extract a tagged release for installing
+    python ticket-system/tools/release.py merge-doc <release-doc> <project-doc> --base <old-release-doc> --out <file>
+                                                           the release's rules doc with the project's values,
+                                                           free-text lines, project blocks and (with --base) edits
+                                                           kept; a project line it drops that is not the base's
+                                                           wording is listed (exit 2), never dropped silently
 
 Every file is hashed several ways:
   raw       - the exact bytes; `check` compares it, so a manifest proves byte identity with payload/;
@@ -1068,7 +1073,12 @@ def command_identify(args):
 	shipped = {version: {entry["exact"] for entry in manifest["files"].values() if entry["kind"] != "adapted"}
 		for version, manifest in manifests}
 	best = None
+	# Each release's summary line and per-file rows, printed once the closest release is known: every summary, but the
+	# rows only under the closest one (B63: the same local change repeated for every older release was noise). With
+	# --verbose every release keeps its rows.
+	reports = []
 	for version, manifest in manifests:
+		rows = []
 		scheme = scheme_of(manifest)
 		files = manifest["files"]
 		editable = required_edits.get(version, set())
@@ -1087,7 +1097,6 @@ def command_identify(args):
 		optional_installed = [relative for relative in optional if results[relative] != "missing"]
 		optional_matched = [relative for relative in optional if results[relative] in matching]
 		optional_local = [relative for relative in optional if results[relative] == "differs"]
-		print("")
 		summary = "release {}: {} product files - {} match, ".format(version, len(product), len(matched))
 		if editable:
 			summary += "{} unverified ({} per-project edits - diff them), ".format(len(unverified), version)
@@ -1096,7 +1105,6 @@ def command_identify(args):
 			summary += "; {} optional files - {} installed".format(len(optional), len(optional_installed))
 			if optional_installed:
 				summary += ": {} match, {} local change(s)".format(len(optional_matched), len(optional_local))
-		print(summary)
 		for relative in sorted(files):
 			entry = files[relative]
 			state = results[relative]
@@ -1116,7 +1124,8 @@ def command_identify(args):
 			if args.verbose or state != "exact":
 				shown = os.path.relpath(located[relative], repo).replace(os.sep, "/")
 				where = "installed" if os.path.isfile(located[relative]) else "expected at"
-				print("  {:<14} {:<8} {}  [{}: {}]{}".format(state, entry["kind"], relative, where, shown, note))
+				rows.append("  {:<14} {:<8} {}  [{}: {}]{}".format(state, entry["kind"], relative, where, shown, note))
+		reports.append((version, summary, rows))
 		score = len(matched) + len(unverified)
 		# The closest release (B22) has the fewest files that contradict it: local changes, missing files, and
 		# unverified files byte-identical to a file another release ships (that release's file, not a per-project
@@ -1134,6 +1143,18 @@ def command_identify(args):
 			best = {"version": version, "rank": rank, "score": score, "product": len(product), "matched": len(matched),
 				"unverified": len(unverified), "local": len(local), "missing": len(missing),
 				"optional": len(optional), "optional_installed": len(optional_installed)}
+	hidden = 0
+	for version, summary, rows in reports:
+		print("")
+		print(summary)
+		if args.verbose or version == best["version"]:
+			for row in rows:
+				print(row)
+		else:
+			hidden += len(rows)
+	if hidden:
+		print("")
+		print("({} per-file line(s) of other releases not shown; --verbose shows every release's)".format(hidden))
 	print("")
 	line = ("closest release: {version} ({score} of {product} product files: {matched} match, {unverified} unverified, "
 		"{local} local change(s), {missing} missing)").format(**best)
@@ -1145,6 +1166,600 @@ def command_identify(args):
 			.format(best["unverified"], best["version"]))
 		print("  Diff each against the release before upgrading, or local changes in them are lost (UPGRADING.md sect. 1).")
 	return 0
+
+
+# --- merge-doc (B61) ------------------------------------------------------------------------------
+# The rules doc, dot-claude/docs/tickets.md, is adapted per project. merge-doc takes a release's copy and an adopter's
+# ported copy (and, with --base, the release that copy was ported from) and writes the release text with the project's
+# parts kept:
+#   values   - the value placeholders below, filled from --set, then config.json, then what the project doc shows
+#              (each release or base line holding one is matched against the project's lines to read the value off);
+#   lines    - a release line holding a free-text placeholder (capitals that are not a value placeholder, with an
+#              optional ": hint") is the project's: the placeholder is filled with the text the project wrote in its
+#              place when that can be read off, else the line's counterpart in the project doc is kept whole;
+#   blocks   - <!-- project:begin name --> ... <!-- project:end name --> in the release keep the project's content
+#              (by name when the project doc has the markers, else by aligning the two docs); a block only the project
+#              has is kept after the line it follows. <!-- template:begin/end --> content is the porting note: dropped;
+#   edits    - with --base, a three-way merge: where the release left the base text alone, the project's version of it
+#              (an edit, an added or a deleted line) is kept.
+# Every other line is the release's. A project line that is dropped is the base's own wording (with --base), or it is
+# listed as LOOK and the command exits 2: never exit 0 with project text dropped.
+doc_value_placeholders = ("NAME", "PREFIX", "FIRST", "PORT", "CLI_DIR", "REPO", "SCRATCH")
+doc_value_pattern = re.compile(r"<(" + "|".join(doc_value_placeholders) + r")>")
+doc_free_pattern = re.compile(r"<([A-Z][A-Z_]*)(?::[^<>]*)?>")
+doc_marker = re.compile(r"^[ \t]*<!--[ \t]*(project|template):(begin|end)(?:[ \t]+([A-Za-z0-9_.-]+))?[ \t]*-->[ \t]*$")
+# Older templates wrote these free-text places in words; a base doc of such a release still names them, so the text a
+# project wrote there can be read off and moved to the placeholder's line (1.4.0 and earlier).
+doc_legacy_free = [
+	("NEIGHBOURS", "Say here what else on this PC it keeps clear of."),
+	("DESIGN_DOC", "`<where design reasoning goes>`"),
+	("ROLE_LIMITS", "`<Add any role limits your agent briefs set.>`"),
+]
+# A free placeholder (with the backticks around it, if any) as it appears in a line, or a legacy wording of one.
+doc_free_token = re.compile(r"`?<(?P<free>[A-Z][A-Z_]*)(?::[^<>]*)?>`?|" + "|".join(
+	"(?P<legacy{}>{})".format(index, re.escape(text)) for index, (_, text) in enumerate(doc_legacy_free)))
+# A line is used to read a free value off only with this many characters of its own besides the placeholders, so a line
+# that is nothing but a placeholder does not match every project line.
+doc_context_chars = 8
+# How alike (difflib ratio) two lines must be for a free-text line's counterpart to be picked by likeness.
+doc_similar_ratio = 0.6
+# config.json key per value placeholder.
+doc_config_keys = {"NAME": "store_name", "PREFIX": "id_prefix", "FIRST": "first_ticket_number", "PORT": "viewer_port",
+	"CLI_DIR": "tool_dir"}
+
+
+def doc_ascii(text):
+	return text.encode("ascii", "backslashreplace").decode("ascii")
+
+
+def read_doc(path):
+	"""(lines without line ends, the line end the file uses, whether it starts with a BOM). UTF-8."""
+	try:
+		with open(path, "r", encoding="utf-8", newline="") as handle:
+			text = handle.read()
+	except OSError as error:
+		raise SystemExit("ERROR cannot read {} ({})".format(doc_ascii(path), doc_ascii(str(error.strerror or error))))
+	except UnicodeDecodeError:
+		raise SystemExit("ERROR {} is not UTF-8".format(doc_ascii(path)))
+	bom = text.startswith("\ufeff")
+	if bom:
+		text = text[1:]
+	newline = "\r\n" if "\r\n" in text else "\n"
+	lines = text.replace("\r\n", "\n").split("\n")
+	if lines and lines[-1] == "":
+		lines.pop()
+	return lines, newline, bom
+
+
+def parse_doc_blocks(lines, label):
+	"""(plain, numbers, blocks, template): the lines without marker lines and template content, each plain line's
+	1-based line number in the file, the project blocks as [{"name", "start", "end", "line"}] (plain[start:end] is the
+	content), and the template content as [(line number, line)]."""
+	plain, numbers, blocks, template = [], [], [], []
+	open_block = None
+	seen = set()
+	after_template = False
+	for number, line in enumerate(lines, 1):
+		# A template note between blank lines leaves one blank line, not two.
+		if after_template and not line.strip() and plain and not plain[-1].strip():
+			after_template = False
+			continue
+		found = doc_marker.match(line)
+		if found:
+			kind, edge, name = found.group(1), found.group(2), found.group(3) or ""
+			if kind == "project" and not name:
+				raise SystemExit("ERROR {} line {}: a project marker needs a name".format(label, number))
+			if edge == "begin":
+				if open_block is not None:
+					raise SystemExit("ERROR {} line {}: {} marker inside the open block that line {} begins".format(
+						label, number, kind, open_block["line"]))
+				if kind == "project" and name in seen:
+					raise SystemExit("ERROR {} line {}: project block '{}' given twice".format(label, number, name))
+				if kind == "project":
+					seen.add(name)
+				open_block = {"kind": kind, "name": name, "start": len(plain), "line": number}
+			else:
+				if open_block is None or open_block["kind"] != kind or (name and name != open_block["name"]):
+					raise SystemExit("ERROR {} line {}: {}:end does not close an open {} block".format(label, number, kind,
+						kind))
+				if kind == "project":
+					blocks.append({"name": open_block["name"], "start": open_block["start"], "end": len(plain),
+						"line": open_block["line"]})
+				after_template = kind == "template"
+				open_block = None
+			continue
+		if open_block is not None and open_block["kind"] == "template":
+			template.append((number, line))
+			continue
+		after_template = False
+		plain.append(line)
+		numbers.append(number)
+	if open_block is not None:
+		raise SystemExit("ERROR {} line {}: {} block '{}' is never closed".format(label, open_block["line"],
+			open_block["kind"], open_block["name"]))
+	return plain, numbers, blocks, template
+
+
+def free_placeholders(line):
+	return [name for name in doc_free_pattern.findall(line) if name not in doc_value_placeholders]
+
+
+def learned_doc_values(lines, project):
+	"""{placeholder: {value: count}}, read off the project lines that match a line with value placeholders."""
+	learned = {}
+	project_set = set(project)
+	for line in lines:
+		if not doc_value_pattern.search(line) or free_placeholders(line):
+			continue
+		pattern, named = "", set()
+		position = 0
+		for found in doc_value_pattern.finditer(line):
+			pattern += re.escape(line[position:found.start()])
+			name = found.group(1)
+			pattern += "(?P={})".format(name) if name in named else "(?P<{}>.+?)".format(name)
+			named.add(name)
+			position = found.end()
+		pattern += re.escape(line[position:])
+		compiled = re.compile(pattern)
+		for candidate in project_set:
+			matched = compiled.fullmatch(candidate)
+			if matched:
+				for name, value in matched.groupdict().items():
+					counts = learned.setdefault(name, {})
+					counts[value] = counts.get(value, 0) + 1
+	return learned
+
+
+def free_token_name(found):
+	if found.group("free"):
+		return found.group("free")
+	for index, (name, _) in enumerate(doc_legacy_free):
+		if found.group("legacy{}".format(index)):
+			return name
+	return None
+
+
+def learned_free_values(lines, project):
+	"""{free placeholder: {value: set of project line offsets}}, read off the project lines that match a line (value
+	placeholders already filled) holding free placeholders or their legacy wording, with enough text of its own."""
+	learned = {}
+	for line in lines:
+		tokens = [found for found in doc_free_token.finditer(line)
+			if free_token_name(found) and free_token_name(found) not in doc_value_placeholders]
+		if not tokens:
+			continue
+		pattern, named, own = "", set(), ""
+		position = 0
+		for found in tokens:
+			own += line[position:found.start()]
+			pattern += re.escape(line[position:found.start()])
+			name = free_token_name(found)
+			pattern += "(?P={})".format(name) if name in named else "(?P<{}>.+?)".format(name)
+			named.add(name)
+			position = found.end()
+		own += line[position:]
+		pattern += re.escape(line[position:])
+		if len(own.strip()) < doc_context_chars:
+			continue
+		compiled = re.compile(pattern)
+		for offset, candidate in enumerate(project):
+			matched = compiled.fullmatch(candidate)
+			if matched:
+				for name, value in matched.groupdict().items():
+					learned.setdefault(name, {}).setdefault(value, set()).add(offset)
+	return learned
+
+
+def filled_free(line, values):
+	"""A release line with each free placeholder (and the backticks around it) replaced by its learned value."""
+	return doc_free_token.sub(lambda found: values.get(free_token_name(found), found.group(0))
+		if found.group("free") else found.group(0), line)
+
+
+def doc_config(path):
+	"""The config.json values for the placeholders, as text; {} with a note when it cannot be read."""
+	try:
+		with open(path, "r", encoding="utf-8-sig") as handle:
+			config = json.load(handle)
+	except (OSError, ValueError) as error:
+		return {}, "config {} not read ({}); values come from --set and the project doc".format(doc_ascii(path),
+			doc_ascii(str(getattr(error, "strerror", None) or error)))
+	if not isinstance(config, dict):
+		return {}, "config {} is not a JSON object; not used".format(doc_ascii(path))
+	values = {}
+	for name, key in doc_config_keys.items():
+		value = config.get(key)
+		if isinstance(value, bool) or value is None:
+			continue
+		if isinstance(value, (str, int)) and str(value).strip():
+			values[name] = str(value).strip().rstrip("/\\") if name == "CLI_DIR" else str(value)
+	if "FIRST" not in values:
+		values["FIRST"] = "1"
+	return values, None
+
+
+def aligned_range(opcodes, start, end):
+	"""The project lines that release lines [start, end) align with, as (low, high, spills): spills is True when a
+	changed hunk it takes reaches release lines outside the range. None when nothing aligns."""
+	spans, spills = [], False
+	for tag, i1, i2, j1, j2 in opcodes:
+		if tag == "equal":
+			low, high = max(start, i1), min(end, i2)
+			if low < high:
+				spans.append((j1 + low - i1, j1 + high - i1))
+			continue
+		if i1 == i2:
+			touches = start <= i1 <= end
+		else:
+			touches = i1 < end and start < i2
+		if touches and j2 > j1:
+			spans.append((j1, j2))
+			if i1 < start or i2 > end:
+				spills = True
+	if not spans:
+		return None
+	return min(low for low, _ in spans), max(high for _, high in spans), spills
+
+
+def same_path(first, second):
+	"""Whether two paths name one file: os.path.samefile when both exist, else the normalised absolute paths."""
+	try:
+		if os.path.exists(first) and os.path.exists(second):
+			return os.path.samefile(first, second)
+	except OSError:
+		pass
+	return os.path.normcase(os.path.realpath(first)) == os.path.normcase(os.path.realpath(second))
+
+
+def write_doc_atomically(path, text):
+	"""Write text (UTF-8, as given) to a temporary file beside path, then move it over path in one step."""
+	temp = "{}.merge-doc-{}.tmp".format(path, os.getpid())
+	try:
+		with open(temp, "w", encoding="utf-8", newline="") as handle:
+			handle.write(text)
+		os.replace(temp, path)
+	except OSError as error:
+		try:
+			if os.path.exists(temp):
+				os.remove(temp)
+		except OSError:
+			pass
+		raise SystemExit("ERROR cannot write {} ({})".format(doc_ascii(path), doc_ascii(str(error.strerror or error))))
+
+
+def command_merge_doc(args):
+	release_doc = os.path.abspath(args.release_doc)
+	project_doc = os.path.abspath(args.project_doc)
+	out_path = os.path.abspath(args.out)
+	inputs = [("release_doc", release_doc), ("project_doc", project_doc)]
+	if args.base:
+		inputs.append(("--base", os.path.abspath(args.base)))
+	for label, path in inputs:
+		if same_path(out_path, path):
+			raise SystemExit("ERROR --out is the {} ({}); write the merged doc elsewhere, review the diff, then copy it "
+				"over".format(label, doc_ascii(path)))
+	release_lines, _, _ = read_doc(release_doc)
+	project_lines, newline, bom = read_doc(project_doc)
+	release, _, release_blocks, release_template = parse_doc_blocks(release_lines, "release doc")
+	project, project_numbers, project_blocks, project_template = parse_doc_blocks(project_lines, "project doc")
+	base = None
+	if args.base:
+		base_lines, _, _ = read_doc(os.path.abspath(args.base))
+		base, _, _, _ = parse_doc_blocks(base_lines, "base doc")
+	notes, look = [], []
+
+	# The values: --set, then config.json, then what the project doc shows, then where the doc sits.
+	doc_repo = None
+	parts = project_doc.replace("\\", "/").split("/")
+	if len(parts) >= 4 and parts[-3] == ".claude" and parts[-2] == "docs":
+		doc_repo = os.path.dirname(os.path.dirname(os.path.dirname(project_doc)))
+	config_path = args.config or (os.path.join(doc_repo, config_rel) if doc_repo else None)
+	config_values = {}
+	if config_path:
+		config_values, problem = doc_config(config_path)
+		if problem:
+			notes.append(problem)
+	given = {}
+	for item in args.set or []:
+		name, sep, value = item.partition("=")
+		if not sep or name not in doc_value_placeholders:
+			raise SystemExit("ERROR --set takes NAME=value with NAME one of {}".format(", ".join(doc_value_placeholders)))
+		given[name] = value
+	learned = learned_doc_values(release + (base or []), project)
+	values, sources = {}, {}
+	for name in doc_value_placeholders:
+		counts = learned.get(name, {})
+		read_off = max(sorted(counts), key=lambda value: counts[value]) if counts else None
+		if len(counts) > 1:
+			notes.append("<{}> reads differently in the project doc: {}".format(name, "; ".join(
+				"'{}' x{}".format(doc_ascii(value), counts[value]) for value in sorted(counts))))
+		if name in given:
+			values[name], sources[name] = given[name], "--set"
+		elif name in config_values:
+			values[name], sources[name] = config_values[name], "config.json"
+		elif read_off is not None:
+			values[name], sources[name] = read_off, "project doc"
+		elif name == "REPO" and doc_repo:
+			values[name], sources[name] = doc_repo, "the doc's location"
+		if read_off is not None and name in values and values[name] != read_off and sources[name] != "project doc":
+			notes.append("<{}> is '{}' from {}, but the project doc shows '{}'".format(name, doc_ascii(values[name]),
+				sources[name], doc_ascii(read_off)))
+
+	def fill(line):
+		return doc_value_pattern.sub(lambda found: values.get(found.group(1), found.group(0)), line)
+
+	filled = [fill(line) for line in release]
+	unfilled = sorted({name for line in filled for name in doc_value_pattern.findall(line)})
+	# Base wording is decided by position: a project (or release) line is the base's own text only inside an equal
+	# block of the base aligned with it, never because the same text occurs somewhere else in the base (a lone fence, a
+	# table rule, a repeated CLI line).
+	base_project, base_release = set(), set()
+	if base is not None:
+		base_keys = [fill(line).rstrip() for line in base]
+		for side, keys in ((base_project, [line.rstrip() for line in project]), (base_release,
+				[line.rstrip() for line in filled])):
+			aligner = difflib.SequenceMatcher(None, base_keys, keys, autojunk=False)
+			for tag, _, _, j1, j2 in aligner.get_opcodes():
+				if tag == "equal":
+					side.update(range(j1, j2))
+
+	# The project's template note: dropped like the release's, but reported where it is not the release's own text.
+	release_note = [fill(line).rstrip() for _, line in release_template]
+	changed_note = [(number, line) for number, line in project_template if fill(line).rstrip() not in release_note]
+	if changed_note:
+		look.append("{} line(s) between your template:begin/end markers differ from the release's porting note; that "
+			"note is dropped, so these are NOT in the merged doc:".format(len(changed_note)))
+		look.extend("    {:>4}: {}".format(number, doc_ascii(line)) for number, line in changed_note)
+
+	# The text the project wrote in each free-text place, where a line with enough text of its own shows it.
+	free_found = learned_free_values(filled + [fill(line) for line in (base or [])], project)
+	free_values, free_offsets = {}, {}
+	for name, found in free_found.items():
+		if len(found) == 1:
+			value = next(iter(found))
+			free_values[name], free_offsets[name] = value, found[value]
+		else:
+			notes.append("<{}> reads differently in the project doc ({} versions); its line is matched instead".format(
+				name, len(found)))
+
+	# The project's parts of the release: its blocks, and runs of free-placeholder lines outside them.
+	in_block = set()
+	for block in release_blocks:
+		in_block.update(range(block["start"], block["end"]))
+	parts_list = [dict(block, kind="block") for block in release_blocks]
+	index = 0
+	while index < len(release):
+		if index not in in_block and free_placeholders(release[index]):
+			start = index
+			while index < len(release) and index not in in_block and free_placeholders(release[index]):
+				index += 1
+			parts_list.append({"name": ", ".join(sorted({name for line in release[start:index]
+				for name in free_placeholders(line)})), "start": start, "end": index, "kind": "free"})
+			continue
+		index += 1
+
+	matcher = difflib.SequenceMatcher(None, [line.rstrip() for line in filled], [line.rstrip() for line in project],
+		autojunk=False)
+	opcodes = matcher.get_opcodes()
+	used = set()
+	by_name = {block["name"]: block for block in project_blocks}
+	for block in project_blocks:
+		used.update(range(block["start"], block["end"]))
+	kept = {}
+	for number, part in enumerate(parts_list):
+		label = ("block '{}'" if part["kind"] == "block" else "<{}>").format(part["name"])
+		if part["kind"] == "block" and part["name"] in by_name:
+			block = by_name[part["name"]]
+			kept[number] = project[block["start"]:block["end"]]
+			continue
+		names = {name for line in release[part["start"]:part["end"]] for name in free_placeholders(line)}
+		if part["kind"] == "free" and names and all(name in free_values for name in names):
+			# The release's line, with the project's text in its free places: release wording around it still merges.
+			kept[number] = [filled_free(line, free_values) for line in filled[part["start"]:part["end"]]]
+			for name in names:
+				used.update(free_offsets[name])
+			notes.append("filled {} from your doc (line(s) {})".format(label, ", ".join(
+				str(project_numbers[offset]) for offset in sorted(set().union(*(free_offsets[name] for name in names))))))
+			continue
+		found = aligned_range(opcodes, part["start"], part["end"])
+		if found is None or found[0] == found[1]:
+			kept[number] = filled[part["start"]:part["end"]]
+			if part["end"] > part["start"]:
+				look.append("{}: no counterpart in the project doc; the release's text is kept - fill it in".format(label))
+			continue
+		low, high, spills = found
+		offsets = [offset for offset in range(low, high) if offset not in used]
+		if spills and part["kind"] == "free":
+			offsets = picked_offsets(offsets, project, filled, part, opcodes, in_block, base_project)
+		used.update(offsets)
+		kept[number] = [project[offset] for offset in offsets]
+		if part["kind"] == "free":
+			notes.append("kept project line(s) {}: {}".format(", ".join(str(project_numbers[offset]) for offset in offsets)
+				or "-", label))
+			if spills:
+				look.append("{}: the release also changed the text around it, so project line(s) {} were picked by "
+					"likeness; check the diff there".format(label, ", ".join(str(project_numbers[offset])
+					for offset in offsets) or "-"))
+
+	# With --base, a three-way merge of every other changed hunk: where the release kept the base text, the project's
+	# version is kept; where only the release changed it, the release's; where both did, the release's, and the
+	# project's own lines are a LOOK.
+	covered = set(in_block)
+	for part in parts_list:
+		covered.update(range(part["start"], part["end"]))
+	conflicts = []
+	if base is not None:
+		for tag, i1, i2, j1, j2 in opcodes:
+			if tag == "equal" or any(index in covered for index in range(i1, i2)):
+				continue
+			if i1 == i2 and any(part["start"] < i1 < part["end"] for part in parts_list):
+				continue
+			project_side = [offset for offset in range(j1, j2) if offset not in used]
+			release_new = [index for index in range(i1, i2) if index not in base_release]
+			project_new = [offset for offset in project_side if offset not in base_project]
+			if not release_new and (project_new or i2 > i1):
+				parts_list.append({"name": "edit", "start": i1, "end": i2, "kind": "edit"})
+				kept[len(parts_list) - 1] = [project[offset] for offset in project_side]
+				used.update(project_side)
+				if project_side:
+					notes.append("kept your edit, line(s) {} (the release left that text as it was)".format(
+						shown_numbers(project_numbers, project_side[0], project_side[-1] + 1)))
+				else:
+					notes.append("left out {} release line(s) your doc deleted (the release did not change them), from "
+						"'{}'".format(i2 - i1, doc_ascii(next((filled[index].strip() for index in range(i1, i2)
+						if filled[index].strip()), "")[:60])))
+			elif project_new:
+				conflicts += project_new
+				used.update(project_new)
+
+	# Project lines in no kept part that differ from the release: the base's own wording (dropped, listed), or a LOOK.
+	leftovers, replaced = list(conflicts), []
+	for tag, i1, i2, j1, j2 in opcodes:
+		if tag == "equal":
+			continue
+		for offset in range(j1, j2):
+			if offset in used or not project[offset].strip():
+				# A blank line the release does not have is layout, not content.
+				continue
+			(replaced if offset in base_project else leftovers).append(offset)
+	leftovers.sort()
+
+	# Blocks only the project has: kept after the release line the project line before them matches.
+	release_names_set = {block["name"] for block in release_blocks}
+	after = {}
+	for block in project_blocks:
+		if block["name"] in release_names_set:
+			continue
+		anchor = None
+		if block["start"] == 0:
+			anchor = -1
+		else:
+			for tag, i1, i2, j1, j2 in opcodes:
+				if tag == "equal" and j1 <= block["start"] - 1 < j2:
+					anchor = i1 + block["start"] - 1 - j1
+					break
+		if anchor is None:
+			look.append("project block '{}' (line {}): the line before it is not in the release text, so it was not "
+				"placed; its lines are NOT in the merged doc:".format(block["name"], block["line"]))
+			look.extend("    " + doc_ascii(line) for line in project[block["start"]:block["end"]])
+			continue
+		after.setdefault(anchor, []).append(block)
+
+	def emit_block(out, name, content):
+		out.append("<!-- project:begin {} -->".format(name))
+		out.extend(content)
+		out.append("<!-- project:end {} -->".format(name))
+
+	def emit_after(out, release_index):
+		for block in after.get(release_index, []):
+			emit_block(out, block["name"], project[block["start"]:block["end"]])
+
+	def emit_part(out, number):
+		part = parts_list[number]
+		if part["kind"] == "block":
+			emit_block(out, part["name"], kept[number])
+		else:
+			out.extend(kept[number])
+
+	starting = {}
+	for number, part in enumerate(parts_list):
+		starting.setdefault(part["start"], []).append(number)
+	merged = []
+	emit_after(merged, -1)
+	index = 0
+	while True:
+		here = starting.get(index, [])
+		# An empty part (the release's rules pair, a line the project added) consumes no release line.
+		for number in here:
+			if parts_list[number]["end"] == index:
+				emit_part(merged, number)
+		if index >= len(filled):
+			break
+		spanning = [number for number in here if parts_list[number]["end"] > index]
+		if spanning:
+			emit_part(merged, spanning[0])
+			for covered_index in range(index, parts_list[spanning[0]]["end"]):
+				emit_after(merged, covered_index)
+			index = parts_list[spanning[0]]["end"]
+			continue
+		merged.append(filled[index])
+		emit_after(merged, index)
+		index += 1
+
+	write_doc_atomically(out_path, ("\ufeff" if bom else "") + newline.join(merged) + newline)
+
+	print("merged {} lines into {}{}".format(len(merged), doc_ascii(out_path), "" if base is not None else
+		"  (no --base: every project line the release text replaces is listed as LOOK)"))
+	for name in doc_value_placeholders:
+		if name in values:
+			print("  <{}> = '{}'  ({})".format(name, doc_ascii(values[name]), sources[name]))
+	if replaced:
+		notes.append("{} project line(s) are the base release's wording of a line this release changed or removed; "
+			"the release's text is taken:".format(len(replaced)))
+		notes.extend("    {:>4}: {}".format(project_numbers[offset], doc_ascii(project[offset])) for offset in replaced)
+	for note in notes:
+		print(("NOTE " + note) if not note.startswith("    ") else note)
+	for name in unfilled:
+		look.append("<{}> has no value (give --set {}=...); the placeholder is left in the merged doc".format(name, name))
+	if leftovers:
+		look.append("{} project line(s) are NOT in the merged doc: the release text replaced them{}. Put each back where "
+			"it belongs (inside a project:begin/end pair keeps it from then on), or let it go if the release says the "
+			"same:".format(len(leftovers), ", and they are not the base release's wording" if base is not None else
+			" (give --base to tell your edits from older release wording)"))
+		for offset in leftovers:
+			look.append("    {:>4}: {}".format(project_numbers[offset], doc_ascii(project[offset])))
+	for line in look:
+		print(("LOOK " + line) if not line.startswith("    ") else line)
+	if look:
+		print("exit 2: something to look at. Review the merged doc against your doc (a diff) before replacing it.")
+		return 2
+	print("exit 0: no project text was dropped. Review the merged doc against your doc (a diff) before replacing it.")
+	return 0
+
+
+def older_wording(line, candidates):
+	"""Whether a project line is alike (difflib ratio) one of the candidate release lines."""
+	return any(difflib.SequenceMatcher(None, line.strip(), other.strip(), autojunk=False).ratio() >= doc_similar_ratio
+		for other in candidates)
+
+
+def picked_offsets(offsets, project, filled, part, opcodes, in_block, base_project):
+	"""For a free-text part whose changed hunk reaches past it: the project lines that are its counterpart, not the
+	older wording of the release lines around it. The line most like each of the part's release lines, plus the
+	adjacent lines that are neither base wording nor alike another release line of the hunk (more rows of a table the
+	project filled, say)."""
+	others = []
+	for tag, i1, i2, j1, j2 in opcodes:
+		if tag != "equal" and any(j1 <= offset < j2 for offset in offsets):
+			others += [filled[index] for index in range(i1, i2)
+				if not (part["start"] <= index < part["end"]) and index not in in_block]
+	chosen = set()
+	for index in range(part["start"], part["end"]):
+		scored = [(difflib.SequenceMatcher(None, project[offset].strip(), filled[index].strip(), autojunk=False).ratio(),
+			-offset) for offset in offsets if offset not in chosen and offset not in base_project]
+		if scored:
+			chosen.add(-max(scored)[1])
+	if not chosen:
+		return []
+	position = {offset: place for place, offset in enumerate(offsets)}
+	for step in (-1, 1):
+		place = position[min(chosen)] if step < 0 else position[max(chosen)]
+		while 0 <= place + step < len(offsets):
+			offset = offsets[place + step]
+			line = project[offset]
+			if not line.strip() or offset in base_project or older_wording(line, others):
+				break
+			chosen.add(offset)
+			place += step
+	return sorted(chosen)
+
+
+def shown_numbers(numbers, low, high):
+	"""Plain lines [low, high) as the file's line numbers, 'N' or 'N-M'."""
+	if high <= low:
+		return "-"
+	first, last = numbers[low], numbers[high - 1]
+	return str(first) if first == last else "{}-{}".format(first, last)
 
 
 def windows_name_problem(part):
@@ -1303,13 +1918,28 @@ def main():
 	identify.add_argument("--cli-dir", help="the CLI's folder relative to the repo (default: tool_dir from the repo's "
 		".claude/tickets/config.json when it is a relative folder inside the repo holding tickets.py, else the first of "
 		"{} holding it)".format(" and ".join(cli_dir_candidates)))
-	identify.add_argument("--verbose", action="store_true", help="list exact matches too")
+	identify.add_argument("--verbose", action="store_true",
+		help="list exact matches too, and every release's per-file lines (by default only the closest release's)")
 	identify.set_defaults(handler=command_identify)
 	export = commands.add_parser("export", help="extract a tagged release into a folder, for installing")
 	export.add_argument("version", help="x.y.z; the release tag is tickets-v<version>")
 	export.add_argument("destination", help="an empty or new folder (e.g. your scratch)")
 	export.add_argument("--ref", help="export this git ref instead of the release tag (pre-release testing only)")
 	export.set_defaults(handler=command_export)
+	merge_doc = commands.add_parser("merge-doc",
+		help="merge a release's rules doc into a project's ported copy, keeping the project's values and parts")
+	merge_doc.add_argument("release_doc", help="the release's dot-claude/docs/tickets.md (e.g. from export)")
+	merge_doc.add_argument("project_doc", help="the project's ported copy (e.g. <repo>/.claude/docs/tickets.md)")
+	merge_doc.add_argument("--out", required=True,
+		help="where to write the merged doc: a new file, never one of the inputs (review the diff, then copy it over)")
+	merge_doc.add_argument("--base", help="the rules doc of the release your doc was ported from (export that release); "
+		"enables the three-way merge that keeps your edits and tells them from older release wording")
+	merge_doc.add_argument("--config", help="the project's config.json (default: <repo>/.claude/tickets/config.json when "
+		"project_doc is <repo>/.claude/docs/<file>)")
+	merge_doc.add_argument("--set", action="append", metavar="NAME=VALUE",
+		help="a placeholder value, overriding config.json and the project doc ({}); repeatable".format(
+			", ".join(doc_value_placeholders)))
+	merge_doc.set_defaults(handler=command_merge_doc)
 	args = parser.parse_args()
 	return args.handler(args)
 

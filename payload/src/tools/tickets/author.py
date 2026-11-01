@@ -481,6 +481,11 @@ def built_ticket(args):
 	ticket_id = tickets.next_id()
 	known_ids = {item.get("id") for item in existing if isinstance(item, dict)} | {ticket_id}
 	ticket, problems = tickets.import_ticket(record, ticket_id, tickets.utc_now(), schema, store, groups, known_ids)
+	# import takes a done ticket without a commit (old records); filing one does not (B62).
+	done_problem = tickets.done_commit_problem(ticket, "add --link-commit <hash>, or a hash in links.commits with "
+		"--from-json") if isinstance(ticket, dict) else None
+	if done_problem:
+		problems = list(problems) + [("status", done_problem)]
 	if not problems:
 		# The tickets its blocks name get the other side when new writes it: they must exist, be usable and stay valid
 		# with it (the new id counted as known), or new writes nothing.

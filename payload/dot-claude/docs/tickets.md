@@ -1,13 +1,19 @@
 # tickets (read before filing, updating or closing a ticket)
 
+<!-- template:begin -->
 *Template from the ticket system release. Replace every `<...>` placeholder with your project's
-value, add your project's own rules where it says so, and delete this paragraph. Placeholders: `<NAME>` the store
+value, add your project's own rules where it says so, and delete this paragraph with its two marker lines. Placeholders: `<NAME>` the store
 name, `<PREFIX>` the id prefix with its hyphen, `<FIRST>` the first ticket number, `<PORT>` the viewer port,
 `<CLI_DIR>` where `tickets.py` lives (`src/tools/tickets` or `tools/tickets`), `<REPO>` the repository's absolute
 path, `<SCRATCH>` where body files go (`<REPO>/.claude/scratch/<role>/<task>/`, inside the project and git-ignored,
 never a system temp folder). The section numbers are yours to keep or change: the skill names the
 sections it relies on (the severity scale, the rules section, the peer exchange section, the ticket-system section),
-and its Settings "Rules doc" row maps each name to your number.*
+and its Settings "Rules doc" row maps each name to your number. A line holding a free-text placeholder (other capitals than
+those above, optionally with a hint after a colon: `<AREAS>`, `<ROLE_LIMITS: ...>`) is yours to rewrite whole. Lines of your own go between
+`<!-- project:begin <name> -->` and `<!-- project:end <name> -->` marker lines (sect. 5 has an empty `rules` pair).
+On an upgrade, `release.py merge-doc` takes the release's text and keeps your values, those lines and those blocks
+(the ticket system's `docs/upgrading/general-procedure.md`).*
+<!-- template:end -->
 
 Tickets are `<NAME>`'s queue of findings and asks. **Chat is still where a finding is reported; the ticket is
 where it is kept.** The `tickets` project skill (`.claude/skills/tickets/SKILL.md`) is the procedure for reading,
@@ -141,7 +147,8 @@ python <CLI_DIR>/tickets.py import <SCRATCH>/records.json --dry-run
   tickets (`links.blocks names X, but X's links.blocked_by lacks Y: run tickets.py set ...`), no ticket both
   blocking and blocked by the same one, a comment not dated before its ticket, `updated` not before `created`.
   It prints `WARNING <id>: mentions <ids> in its body or comments, which is not in the store` (a warning, not a
-  failure) for a mentioned id with no ticket. It exits 1 on any problem - run it
+  failure) for a mentioned id with no ticket, and `WARNING N done ticket(s) have no commit link (<ids>)` for done
+  tickets closed before the writers refused that. It exits 1 on any problem - run it
   after editing tickets, and before a commit that touches `.claude/tickets/`. A tag whose entry in `tags.json` is
   invalid (a bad colour, say) is reported first as the `tags.json` problem, then on each ticket carrying it as
   `<file>: tag id N: its entry in tags.json is invalid (the tags.json problem for tag N says why)` or
@@ -230,8 +237,9 @@ python <CLI_DIR>/serve.py --stop            stop the recorded server
 python <CLI_DIR>/serve.py --foreground      run in this console, Ctrl+C to stop
 ```
 
-- **Port `<PORT>`**, from `viewer_port` in `config.json`. Say here what else on this PC it keeps clear of. **Since
-  1.4.0 the default bind is `127.0.0.1`**: only this PC reaches it, and no firewall prompt appears.
+- **Port `<PORT>`**, from `viewer_port` in `config.json`.
+  <NEIGHBOURS: what else on this PC it keeps clear of, as a sentence>
+  **Since 1.4.0 the default bind is `127.0.0.1`**: only this PC reaches it, and no firewall prompt appears.
   `--all-interfaces` is the opt-in for the user's phone or another machine on the network (a tool on the same PC, such as a master
   site, reaches it over 127.0.0.1 and needs no flag); it prints `http://127.0.0.1:<PORT>/` and the LAN address the PC is reached on.
   `--local-only`, the opt-out before 1.4.0, is still accepted and changes nothing.
@@ -302,13 +310,19 @@ python <CLI_DIR>/serve.py --foreground      run in this console, Ctrl+C to stop
   the user finds what waits on them. Once the user has answered, move it on (`in_progress`, `verified`, ...).
 - **Close with evidence**: `set <id> --status done --link-commit <hash>`, and add a line to the body saying what
   verified it (the check and its result). Reviewed work is `done` only after the review passes, usually from
-  `verified`, and `done` always needs the commit link. `wont_do` needs a line saying why.
+  `verified`, and `done` always needs the commit link: `set`, `new` and `author.py new`/`draft` refuse status
+  `done` while `links.commits` is empty and the same command adds none (`--link-commit <hash>`, or `links.commits`
+  in `--from-json`). `import` still takes an old done ticket without one, and `validate` only warns about it.
+  `wont_do` needs a line saying why.
 - **Who writes.** The PM (the main session) files and updates tickets and owns severity and `target_patch` calls
   on tickets the user filed, and anything the user must decide. A dispatched agent files and updates tickets in
   its own area, or for the work it was given, and names every id it touched in its report. A reviewer edits
-  nothing: it reports its findings and the PM files them. `<Add any role limits your agent briefs set.>`
-- A ticket that becomes a design question moves its reasoning to `<where design reasoning goes>` and links it;
-  the ticket keeps the ask.
+  nothing: it reports its findings and the PM files them. `<ROLE_LIMITS: any role limits your agent briefs set>`
+- A ticket that becomes a design question moves its reasoning to the design doc and links it; the ticket keeps
+  the ask. The design doc:
+  <DESIGN_DOC: where design reasoning goes>.
+<!-- project:begin rules -->
+<!-- project:end rules -->
 
 ## 5a. Exchanging issues with another project's board
 
@@ -318,7 +332,7 @@ PM. The peers:
 
 | peer | session | its tickets folder | tag for what it sends |
 |---|---|---|---|
-| `<project>` | `<session name>` | `<absolute path>` | `peer_<project>` |
+| `<PEER>` | `<session name>` | `<absolute path>` | `peer_<project>` |
 
 (Or "none". The skill's Settings table carries the same list.)
 

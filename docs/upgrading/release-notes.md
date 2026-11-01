@@ -4,6 +4,16 @@
 
 *Part of the upgrade guide, `../UPGRADING.md`: read its opening first, for `SRC`, `REPO`, `SCRATCH` and `CLI_DIR`. A bare "sect. N" here is that guide's sect. N, and its index names the file. `ADOPTING.md` is `../ADOPTING.md`, an index too.*
 
+## 1.4.1 (2026-11-01)
+
+The rules-doc merge tool, `done` enforced, and a quieter `identify` (`CHANGELOG.md` [1.4.1]; the maintainer sets the number and date at release). There is no configuration or JSON structure change, so it's a patch. From 1.4.0, follow sect. 9; from a 1.3.x copy, follow sect. 8 with this release in place of 1.4.0 (its step 2), then sect. 9 from step 4.
+- **The tool folder:** two files changed since 1.4.0: `tickets.py` and `author.py`. Copy those two, or everything in `PAYLOAD/src/tools/tickets/` except `icons/`. Never copy `icons/`, and don't re-bake.
+- **`done` needs a commit link** (B62): `set --status done`, `new --status done` and `author.py draft`/`new` refuse it while `links.commits` is empty and the command adds none. Old done tickets without one stay valid; `validate` prints one `WARNING ... done ticket(s) have no commit link ...` line and exits 0.
+- **The rules doc** merges with `release.py merge-doc ... --base <the 1.4.0 doc> --out <scratch file>` (B61, sect. 9 step 5); exit 0 means none of your text was dropped. The template gains `template:begin/end` markers around its porting note, an empty `project:begin rules` pair at the end of sect. 5, and capitals free-text placeholders, with `<NEIGHBOURS: ...>` and `<DESIGN_DOC: ...>` on lines of their own.
+- **The skill changed outside its rows** (its Close wording, B62). Take it whole, put your Settings rows back, set the version row to `1.4.1`, and have it reviewed before install.
+- **`identify`** prints per-file lines only for the closest release (B63); `--verbose` shows every release's.
+- **The hooks:** unchanged.
+
 ## 1.4.0 (2026-10-31)
 
 Typed ticket links, comments, the `user_review` and `verified` statuses, a new detail view, a localhost viewer and `page_title` (`CHANGELOG.md` [1.4.0]). The schema and `config.json` structures change, so it's a minor, but no data moves: every new field is optional. From 1.3.0 or 1.3.1, follow sect. 8; from a 1.2.x copy, follow sect. 7 with 1.4.0 in place of 1.3.0 (its step 2), then sect. 8.

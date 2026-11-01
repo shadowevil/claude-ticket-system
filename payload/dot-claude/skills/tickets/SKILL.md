@@ -16,7 +16,7 @@ and versions. The project owns its board: its tickets, `config.json`, tags and r
 
 | setting | this project |
 |---|---|
-| Ticket system version | 1.4.0 |
+| Ticket system version | 1.4.1 |
 | CLI | `python <CLI_DIR>/tickets.py` |
 | Store | `.claude/tickets/` (`config.json` for the id prefix, first number, name, viewer port and tag groups; `tags.json`, the tag store of numbered tags; `ticket.schema.json` for fields and enums) |
 | Store, absolute (for replies to a peer) | `<REPO>\.claude\tickets\` |
@@ -144,7 +144,8 @@ only log; they never block a tool call.
 
 - `done`: `<CLI> set <id> --status done --link-commit <hash>`, plus an appended line saying what verified it
   (the check and its result). Close only on evidence, and for reviewed work only after the review passes
-  (usually from `verified`); `done` always needs the commit link. An `unverified` result keeps the ticket open.
+  (usually from `verified`); `done` always needs the commit link: `set`, `new` and `author.py` refuse `done` while
+  the ticket has no commit and the command adds none. An `unverified` result keeps the ticket open.
   - The hash exists only after the fix is committed, so closing is a second, small ticket edit, committed with
     the next change set.
 - `wont_do`: the status, plus an appended line saying why.

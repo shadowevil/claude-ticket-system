@@ -1,4 +1,4 @@
-# Adopting the ticket system in a new project (release 1.4.0)
+# Adopting the ticket system in a new project (release 1.4.1)
 
 *For an agent (or its PM) putting the ticket system into a repository that has none. Follow the steps in order; each ends in a check. If your project already has a copy, use `UPGRADING.md` instead.*
 

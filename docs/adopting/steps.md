@@ -30,17 +30,17 @@ It exits 0 either way; read the word. On Windows, `Get-NetTCPConnection -State L
 
 **From a clone of the GitHub repo:** skip the export. The clone is the release: `PAYLOAD` is `<SRC>/payload/`. (The public repo tags each release from 1.3.1 on, so the export below also works in a clone for 1.3.1 and later; you don't need it.)
 
-**Check:** `<SRC>/VERSION` reads `1.4.0`, and `git -C <SRC> status --short` prints nothing, so you install the release as published.
+**Check:** `<SRC>/VERSION` reads `1.4.1`, and `git -C <SRC> status --short` prints nothing, so you install the release as published.
 
 **On the maintainer's machine,** SRC is the maintainer's source folder. Export the release from it into your scratch:
 
 ```bash
-python <SRC>/tools/release.py export 1.4.0 <SCRATCH>/ticket-system-1.4.0
+python <SRC>/tools/release.py export 1.4.1 <SCRATCH>/ticket-system-1.4.1
 ```
 
-The export reads the release tag, `tickets-v1.4.0`, so it works only once that tag exists; before then it stops with `ERROR cannot read tickets-v1.4.0: ...`. (The maintainer's pre-release test exports a branch with `--ref <branch>`; an adopter never does.) Everything below copies from `<SCRATCH>/ticket-system-1.4.0/payload/` (call it `PAYLOAD`), never from SRC's working tree, which may be mid-change.
+The export reads the release tag, `tickets-v1.4.1`, so it works only once that tag exists; before then it stops with `ERROR cannot read tickets-v1.4.1: ...`. (The maintainer's pre-release test exports a branch with `--ref <branch>`; an adopter never does.) Everything below copies from `<SCRATCH>/ticket-system-1.4.1/payload/` (call it `PAYLOAD`), never from SRC's working tree, which may be mid-change.
 
-**Check:** the command prints `exported tickets-v1.4.0 to ...`, and `PAYLOAD/../VERSION` reads `1.4.0`.
+**Check:** the command prints `exported tickets-v1.4.1 to ...`, and `PAYLOAD/../VERSION` reads `1.4.1`.
 
 ## 3. Copy the files
 
@@ -177,10 +177,12 @@ python <CLI_DIR>/author.py tags add net --color "#2b8fa3" --description "Example
 `.claude/docs/tickets.md` is a template. Fill it in:
 - the placeholders its opening paragraph lists: `<NAME>`, `<PREFIX>`, `<FIRST>`, `<PORT>`, `<CLI_DIR>`, `<REPO>`, `<SCRATCH>`;
 - sect. 2: `<AREAS>` and `<AUTHORS>`, one line each on what an area covers;
-- sect. 4: after the port, say what else on this PC it keeps clear of;
-- sect. 5: `<Add any role limits your agent briefs set.>`, and `<where design reasoning goes>`;
-- sect. 5a: the peers table, one row per peer, or "none";
-- then delete the opening paragraph.
+- sect. 4: after the port, `<NEIGHBOURS: ...>`, what else on this PC it keeps clear of;
+- sect. 5: `<ROLE_LIMITS: ...>`, any role limits your agent briefs set, and `<DESIGN_DOC: ...>`, where design reasoning goes; rules of your own go between the `<!-- project:begin rules -->` and `<!-- project:end rules -->` lines at its end;
+- sect. 5a: the `<PEER>` row of the peers table, one row per peer, or "none";
+- then delete the opening paragraph with its `<!-- template:begin -->` and `<!-- template:end -->` lines.
+
+Keep the `project:begin` / `project:end` marker lines, and wrap any other lines of your own in a pair with a name of your own (`<!-- project:begin <name> -->`): on an upgrade, `release.py merge-doc` keeps those blocks, your values and the lines holding a free-text placeholder, and takes the release's text for the rest (`../upgrading/general-procedure.md` step 7).
 
 Keep the rules themselves. **The section numbers are yours:** keep the template's, or renumber to fit your doc. The skill never cites a section by number. It names the sections it relies on, and your Settings "Rules doc" row (step 8) maps each name to your number. The template's numbers:
 - the severity scale: sect. 2, the `severity` row;
@@ -195,7 +197,7 @@ Leave the provenance line's `<session name>`, `<from-session id>` and `<YYYY-MM-
 **Check:** expect no output:
 
 ```bash
-grep -n -E "<(NAME|PREFIX|FIRST|PORT|CLI_DIR|REPO|SCRATCH|AREAS|AUTHORS)>|<where design|<Add any|Say here|Template from" REPO/.claude/docs/tickets.md
+grep -n -E "<(NAME|PREFIX|FIRST|PORT|CLI_DIR|REPO|SCRATCH|AREAS|AUTHORS|PEER)>|<(NEIGHBOURS|ROLE_LIMITS|DESIGN_DOC):|template:|Template from" REPO/.claude/docs/tickets.md
 ```
 
 Then read the sect. 5a table: it lists your peers, or says "none".
@@ -206,7 +208,7 @@ Then read the sect. 5a table: it lists your peers, or says "none".
 
    | Row | Your value |
    |---|---|
-   | Ticket system version | `1.4.0`, as shipped |
+   | Ticket system version | `1.4.1`, as shipped |
    | CLI | `python <CLI_DIR>/tickets.py` |
    | Store | `.claude/tickets/` and the note on what each file holds, as shipped |
    | Store, absolute (for replies to a peer) | `<REPO>\.claude\tickets\`, the absolute path |
@@ -294,7 +296,7 @@ Then start the viewer for the user as a session background task: `python <CLI_DI
 
 **On the maintainer's machine,** send the `Ticket Master` session one message with:
 - your project name, `PREFIX`, `PORT` and `CLI_DIR`. Ticket Master runs `release.py identify` on your repo, which finds the tool through `tool_dir` or the two default folders, so it needs no `--cli-dir` from you;
-- the version you installed (`1.4.0`), and whether you installed the hooks;
+- the version you installed (`1.4.1`), and whether you installed the hooks;
 - the absolute path of your smoke-test ticket's JSON.
 
 Ticket Master adds you to the adopter table and announces future releases to you.

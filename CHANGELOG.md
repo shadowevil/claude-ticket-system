@@ -2,6 +2,21 @@
 
 Versions use x.y.z numbering (user rule, 2026-09-30): **minor** means the configuration or a JSON structure changed, **patch** is anything smaller such as UI updates and fixes, and **major** is kept for large progress, which is not defined yet. Each entry lists the items it ships, by their numbers (`B<n>`) in the maintainer's internal backlog, and its upgrade steps. The steps in full are in `docs/UPGRADING.md`.
 
+## [1.4.1] - 2026-11-01
+
+**A merge tool for the rules doc, `done` enforced, and a quieter `identify`.** A **patch**: no configuration or JSON structure change (the schema, `config.json`, `tags.json` and the API's JSON are as in 1.4.0). The steps are in `docs/UPGRADING.md` sect. 9.
+
+- **`release.py merge-doc` (B61, from an adopter):** `merge-doc <release-doc> <project-doc> --base <old-release-doc> --out <file>` writes the release's rules doc with the project's parts kept: the value placeholders (from `--set`, `config.json`, then the project doc), the text written in each free-text place, `<!-- project:begin <name> -->` ... `<!-- project:end <name> -->` blocks and, with `--base` (the rules doc of the release the project runs), a three-way merge that keeps the project's edits wherever the release left the text alone. Exit 0 means no project text was dropped; a project line the release text replaced that is not the base's wording is listed as LOOK and the command exits 2. `--out` may not be an input, and the file is written atomically; a BOM and the line endings are kept. An upgrade's rules-doc step is that command plus a review of the diff (`docs/UPGRADING.md` sect. 3 step 7).
+- **The rules-doc template (B61):** the porting note sits between `<!-- template:begin -->` / `<!-- template:end -->` (merge-doc drops it, and reports a project's changed copy); sect. 5 ends with an empty `project:begin rules` pair for the project's own rules; the free-text placeholders are capitals (`<NEIGHBOURS: ...>`, `<ROLE_LIMITS: ...>`, `<DESIGN_DOC: ...>`, `<PEER>`), with `<NEIGHBOURS: ...>` and `<DESIGN_DOC: ...>` on lines of their own. A doc ported from an older template, with no markers, merges by alignment.
+- **`done` needs a commit link (B62, from an adopter):** `tickets.py new` and `set --status done`, and `author.py draft`/`new` (flags or `--from-json`), refuse `done` while `links.commits` is empty and the same command adds none: `ERROR status done needs a commit link (links.commits is empty): add --link-commit <hash> to the same command`. `wont_do` is unaffected; `import` still takes an old done ticket without one, and `set` on such a ticket without `--status done` still works. `validate` warns, never fails: `WARNING N done ticket(s) have no commit link (<ids>): ...`.
+- **`identify` (B63, from an adopter):** prints every release's summary line, but the per-file lines only under the closest release, plus a count of the ones hidden; `--verbose` shows every release's. The same `SKILL.md ... local change` line no longer repeats once per older release.
+- **Files changed since 1.4.0:** in the tool folder, `tickets.py` and `author.py`; the skill (its Close wording, outside its rows) and the rules-doc template; the source's `tools/release.py`.
+- **Ships:** B61, B62, B63.
+
+**Upgrade** from 1.4.0 (`docs/UPGRADING.md` sect. 9):
+1. Get the release (pull your clone, or export it).
+2. Copy `tickets.py` and `author.py`, merge the rules doc with `release.py merge-doc` and review its diff, take the skill (Settings rows back, version row set, reviewed), run `validate` (a `WARNING ... no commit link` is fine).
+
 ## [1.4.0] - 2026-10-31
 
 **Typed ticket links, comments, two statuses, a new detail view and a localhost viewer.** A **minor**: the ticket schema and `config.json` gain optional fields (user rule, 2026-09-30: "Minor only updates when a configuration or json structure change happens"). Nothing migrates: every new field is optional, so existing tickets and configs validate unchanged. The steps are in `docs/UPGRADING.md` sect. 8 and the per-release notes, 1.4.0.

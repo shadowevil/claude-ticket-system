@@ -31,9 +31,24 @@ Read the release's `CHANGELOG.md` entry first. It says whether the release is ma
    **Check:** nothing changed under `icons/`, or three `wrote icons/...` lines with your icon text (and, from 1.2.0, your colour).
 7. **Merge the schema and the rules doc:**
    - Your `ticket.schema.json` keeps your enums. Take any other change the changelog lists.
-   - Your `tickets.md` keeps your project text. Take any rule change the changelog lists.
+   - Your `tickets.md` keeps your project text. From a release that ships `release.py merge-doc` (B61), merge it with one command and review the diff:
+     ```bash
+     python <SRC>/tools/release.py export <old> <SCRATCH>/ts-<old>
+     python <SRC>/tools/release.py merge-doc PAYLOAD/dot-claude/docs/tickets.md <REPO>/.claude/docs/tickets.md --base <SCRATCH>/ts-<old>/payload/dot-claude/docs/tickets.md --out <SCRATCH>/tickets.md
+     ```
+     `<old>` is the release you run now (your skill's version row); `--base` is its rules doc, the one your doc was ported from. With a clone, `git -C <SRC> show tickets-v<old>:payload/dot-claude/docs/tickets.md` gives the same file. `--out` must be a new file: the command refuses to write over any of its inputs.
+     It writes the release's text with your parts kept:
+     - the values (`<NAME>`, `<PREFIX>`, `<FIRST>`, `<PORT>`, `<CLI_DIR>`, `<REPO>`, `<SCRATCH>`): from `--set NAME=value`, then your `config.json` (found from the doc's place, or `--config`), then what your doc shows;
+     - each line holding a free-text placeholder (`<AREAS>`, `<AUTHORS>`, `<NEIGHBOURS: ...>`, `<DESIGN_DOC: ...>`, `<PEER>`, ...): the text you wrote there, or your line whole;
+     - every `<!-- project:begin <name> -->` ... `<!-- project:end <name> -->` block (one only you have is kept after the line it follows);
+     - with `--base`, a three-way merge: wherever the release left the base text unchanged, your version of it (an edit, an added line, a deleted line) is kept.
 
-   **Check:** `python <CLI_DIR>/tickets.py validate` passes on your existing tickets.
+     It prints each value and where it came from, `NOTE` lines for what it kept and for your lines that are the base's own wording of a line the release changed, and `LOOK` lines for what needs you. A LOOK is a line of yours the release text replaced (listed, and **not** in the merged doc), a value with no source, a changed template note, or a line picked by likeness.
+     **Exit 0 means no text of yours was dropped:** every line of your doc is in the merged doc or is the base release's own wording. Exit 2 means at least one LOOK. Exit 1 is an error, such as an unbalanced marker or `--out` naming an input. Without `--base` it cannot tell your edits from older release wording, so every line the release replaced is a LOOK.
+     Diff `<SCRATCH>/tickets.md` against your doc. For each LOOK line, put your text back where it belongs in `<SCRATCH>/tickets.md`, inside a `project:begin`/`end` pair so the next merge keeps it, or let it go if the release now says the same. Then copy the file over your doc. A heading you renumbered counts as a line the release changed: put your number back if you need it (the skill's Settings "Rules doc" row maps section names to your numbers).
+     Without `merge-doc` (a release before it), take the rule changes the changelog lists by hand.
+
+   **Check:** `python <CLI_DIR>/tickets.py validate` passes on your existing tickets, and the rules-doc diff shows only the release's changes and the lines you placed.
 8. **The skill:**
    - Take `PAYLOAD/dot-claude/skills/tickets/SKILL.md`.
    - Put your Settings rows back in, and set the version row to `<new>`.

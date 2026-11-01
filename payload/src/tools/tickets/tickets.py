@@ -1340,6 +1340,9 @@ def validate_store():
 		if missing:
 			warnings.append("{}: mentions {} in its body or comments, which is not in the store".format(ticket["id"],
 				", ".join(missing)))
+	done_warning = done_without_commit_warning(by_id.values())
+	if done_warning:
+		warnings.append(done_warning)
 	named = sum(1 for ticket in tickets if carries_tag_names(ticket))
 	if named:
 		warnings.append("{} tickets still carry tag names: run author.py --convert-all".format(named))
@@ -1363,6 +1366,30 @@ def check_before_write(ticket, also_known=()):
 	errors = write_problems(ticket, also_known)
 	if errors:
 		raise ticket_error("refusing to write an invalid ticket:\n  " + "\n  ".join(errors))
+
+
+def has_commit_link(ticket):
+	links = ticket.get("links")
+	commits = links.get("commits") if isinstance(links, dict) else None
+	return isinstance(commits, list) and len(commits) > 0
+
+
+def done_commit_problem(ticket, how="add --link-commit <hash> to the same command"):
+	"""The rules' "done always needs the commit link" (B62), for a writer setting status done: the problem as text, or
+	None. Only new, set and author.py new/draft refuse it; import and validate do not, so an old store still reads."""
+	if ticket.get("status") == "done" and not has_commit_link(ticket):
+		return "status done needs a commit link (links.commits is empty): {}".format(how)
+	return None
+
+
+def done_without_commit_warning(checked):
+	"""validate's warning for done tickets with no commit link (closed before the writers refused that), or None."""
+	ids = sorted(ticket["id"] for ticket in checked if ticket.get("status") == "done" and not has_commit_link(ticket))
+	if not ids:
+		return None
+	shown_ids = ", ".join(ids[:10]) + (", ..." if len(ids) > 10 else "")
+	return ("{} done ticket(s) have no commit link ({}): add one with set <id> --link-commit <hash> where a commit "
+		"exists".format(len(ids), shown_ids))
 
 
 # --- commands -----------------------------------------------------------------------------------
@@ -1515,6 +1542,9 @@ def command_new(args):
 	}
 	apply_link_arguments(ticket, args)
 	apply_typed_links(ticket, typed_link_changes(args))
+	problem = done_commit_problem(ticket)
+	if problem:
+		raise ticket_error(problem)
 	# The ticket and the other side of each of its blocks are checked first, then written together (create_ticket).
 	written = create_ticket(ticket)
 	print("created {} - {}".format(ticket["id"], ascii_text(ticket["summary"])))
@@ -1552,6 +1582,11 @@ def command_set(args):
 	apply_link_arguments(ticket, args)
 	changes = typed_link_changes(args)
 	apply_typed_links(ticket, changes)
+	# Only a command that sets done is held to the commit link: editing an older done ticket without one still works.
+	if args.status == "done":
+		problem = done_commit_problem(ticket)
+		if problem:
+			raise ticket_error(problem)
 	ticket["updated"] = utc_now()
 	# The changed ticket is checked whole, as `new` checks one: nothing is written unless it is valid. So is each other
 	# ticket a block writes (other_sides); then all are written, or none stays changed (write_together).

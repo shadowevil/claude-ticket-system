@@ -16,13 +16,13 @@ and versions. The project owns its board: its tickets, `config.json`, tags and r
 
 | setting | this project |
 |---|---|
-| Ticket system version | 1.3.1 |
+| Ticket system version | 1.4.0 |
 | CLI | `python <CLI_DIR>/tickets.py` |
 | Store | `.claude/tickets/` (`config.json` for the id prefix, first number, name, viewer port and tag groups; `tags.json`, the tag store of numbered tags; `ticket.schema.json` for fields and enums) |
 | Store, absolute (for replies to a peer) | `<REPO>\.claude\tickets\` |
 | Rules doc | `.claude/docs/tickets.md`; its sections by the names this skill uses: the severity scale sect. 2, the rules section sect. 5, the peer exchange section sect. 5a, the ticket-system section sect. 6 |
 | Agent briefs | `.claude/agents/*.md`, or none: a dispatched agent's brief is the PM's dispatch prompt |
-| Viewer | `python <CLI_DIR>/serve.py --stop`, then `python -u <CLI_DIR>/serve.py --foreground` as a session background task (port `<PORT>`, `viewer_port` in `config.json`) |
+| Viewer | `python <CLI_DIR>/serve.py --stop`, then `python -u <CLI_DIR>/serve.py --foreground` as a session background task (port `<PORT>`, `viewer_port` in `config.json`). It binds 127.0.0.1; add `--all-interfaces` only where the LAN must reach it (a phone, another PC) |
 | Scratch for body files | `.claude/scratch/<role>/<task>/` inside this project (git-ignored; never a system temp folder); `--body-file -` (stdin) needs no file |
 | Backup before editing an existing file (PM only) | `<backup command>`, or none |
 | Design questions | `<where a design question's reasoning goes: a plan folder, a decisions ledger>` |
@@ -62,7 +62,8 @@ only log; they never block a tool call.
 
 ## Read
 
-- One ticket: `<CLI> show <id>`. A bare number works: `show 12` shows the ticket numbered 12.
+- One ticket: `<CLI> show <id>`. A bare number works: `show 12` shows the ticket numbered 12. It also prints the
+  typed links, the mentions and the comments (newest first).
 - A list: `<CLI> list --active`, narrowed with `--owner`, `--tag`, `--severity`, `--status`, `--target` or
   `--text <substring>`.
 - The body exactly as stored: read `<store>/<id>.json` and take `body`. `show` prints the body with non-ASCII
@@ -90,10 +91,12 @@ only log; they never block a tool call.
    Add as they apply:
    - `--status in_progress` if work starts now;
    - `--target <patch>` if it is not the default;
-   - `--link-ticket`, `--link-file` or `--link-commit`.
+   - `--link-ticket`, `--link-file` or `--link-commit`;
+   - `--block <id>`, `--blocked-by <id>` or `--relates <id>` for a typed link to another ticket (the other ticket
+     must exist; a block is written on both).
 
    Instead of the flags, `--from-json <file|->` takes one JSON object with the same fields (`summary`,
-   `severity`, `owner`, `author`, `status`, `target`, `tags`, `body`, `links`). `draft` writes nothing: it prints
+   `severity`, `owner`, `author`, `status`, `target`, `tags`, `body`, `links`). It refuses `comments`: add each with `comment` once the ticket exists. `draft` writes nothing: it prints
    the ticket, or the problems. Field problems come first; the tags and the tag groups are checked once the fields
    pass, so run `draft` again after each fix until it prints the ticket. Then run `<AUTHOR> new` with the same
    input to file it. `--json` prints one JSON object for either.
@@ -106,8 +109,12 @@ only log; they never block a tool call.
 
 - **Status tracks the work** (the rules doc's rules section):
   - `in_progress` when an agent is dispatched on it or the work starts;
-  - `in_review` when the work is done and handed to a reviewer (or the user) for review; back to `in_progress`
-    if the review sends it back;
+  - `in_review` when the work is done and handed to a reviewer for review; back to `in_progress` if the review
+    sends it back;
+  - `verified` once the review has passed and the checks are green, so only landing it (commit, merge,
+    delivery) is left;
+  - `user_review`, from any active status, when the user has to look at it or decide, with a comment or an
+    appended line saying what; the viewer highlights it. Move it on once the user has answered;
   - `blocked` plus an appended line saying what it waits on;
   - back to `open` if the work is dropped.
 
@@ -118,8 +125,17 @@ only log; they never block a tool call.
   earlier text as it is. Change `--summary` if it named the wrong cause.
 - *(guidance)* A ticket that turns into a design question moves its reasoning to the place Settings names for
   design questions and links it; the ticket keeps the ask (the rules doc's rules section).
+- **Links between tickets.** `set <id> --block <other>`, `--blocked-by <other>` or `--relates <other>`; undo with
+  `--remove-block`, `--remove-blocked-by` or `--remove-relates`. A block is written on both tickets by the one
+  command, so never edit the other side by hand. The old `links.tickets` is read as relates-to.
+- **Comments.** `<AUTHOR> comment <id> --author <you> --body-file <file|->` appends a comment (the viewer is
+  read-only, so this is the only way). Use one for a short update or an answer; use `--append-body-file` for
+  findings that belong to the ticket itself. A comment is never edited: correct it with a later one.
+- **Mention a ticket by writing its id** (`XY-0004`) in a body or a comment: the viewer links it and both tickets
+  show the mention, so no link command is needed. Put an id in inline code or a code block only when you do not
+  want a mention. `validate` warns about a mentioned id that has no ticket.
 - Other fields: `--severity`, `--owner`, `--target`, `--tags` / `--add-tag` / `--remove-tag` (tag names),
-  `--link-*`. Who decides severity and target on user-filed tickets: the rules doc's rules section.
+  `--link-*`. A tag name has no hyphen: `re_docs`, not `re-docs`. Who decides severity and target on user-filed tickets: the rules doc's rules section.
 - `set` refuses any change to a ticket that breaks a tag group, its status included. Fix the tags in the same
   call (`--add-tag`, `--remove-tag`).
 - Run `<CLI> validate` after every batch of edits, and before any commit that touches the store.
@@ -127,8 +143,8 @@ only log; they never block a tool call.
 ## Close
 
 - `done`: `<CLI> set <id> --status done --link-commit <hash>`, plus an appended line saying what verified it
-  (the check and its result). Close only on evidence, and for reviewed work only after the review passes; an
-  `unverified` result keeps the ticket open.
+  (the check and its result). Close only on evidence, and for reviewed work only after the review passes
+  (usually from `verified`); `done` always needs the commit link. An `unverified` result keeps the ticket open.
   - The hash exists only after the fix is committed, so closing is a second, small ticket edit, committed with
     the next change set.
 - `wont_do`: the status, plus an appended line saying why.

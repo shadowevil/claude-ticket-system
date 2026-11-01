@@ -11,7 +11,7 @@ A write (Write/Edit/MultiEdit/NotebookEdit, or a shell command's redirect, copy,
 delete) that lands in the ticket system's source - the tool's folder (config tool_dir, else the folder of
 viewer_script, else tools/tickets or src/tools/tickets, whichever holds tickets.py), .claude/skills/tickets/**
 or .claude/hooks/tickets/** - is "fork" unless a ticket requested by the maintaining session is active
-(in_progress or in_review): then it is "tied". THE BOARD IS NEVER JUDGED: tickets (written by tickets.py
+(in_progress, in_review or verified; not user_review): then it is "tied". THE BOARD IS NEVER JUDGED: tickets (written by tickets.py
 new/set), tags.json and the settings (config.json) are the project's own, and a tool_dir that overlaps the
 board is ignored with a breadcrumb. ticket.schema.json is left out too: it mixes the maintained format with
 the project's own enums and id pattern, which a static check cannot tell apart. The hooks' policy.py is the
@@ -339,7 +339,7 @@ def run_self_test():
 		ok(verdicts(ev("PowerShell", command="Copy-Item tools\\tickets\\serve.py working\\s.py")) == [],
 		   "copying out of the system was judged")
 
-		# which tickets tie a write: one the maintaining session requested, while it is in_progress or in_review
+		# which tickets tie a write: one the maintaining session requested, while it is in_progress, in_review or verified
 		fixtures.write_ticket(root, "TK-0007", "in_progress", "Adopt the viewer fix.")
 		ok(verdicts(ev("Write", file_path=serve)) == [FORK], "an unrelated in_progress ticket tied the write")
 		fixtures.write_ticket(root, "TK-0008", "done", "Requested by Ticket Master (x) on 2026-10-01 via cross-session message.")
@@ -353,6 +353,15 @@ def run_self_test():
 		   "an in_review Ticket Master ticket did not tie (past a deeply nested and a truncated ticket): %r" % (hits,))
 		ok([t.get("id") for t in ticket_store.tickets(root)] == ["TK-0007", "TK-0008", "TK-0009", "TK-0010"],
 		   "the store view did not skip exactly the unreadable tickets")
+		# 1.4.0: user_review (paused, waiting on the user) does not tie; verified (landing the work) does
+		fixtures.write_ticket(root, "TK-0013", "user_review", "Requested by Ticket Master (uds:x) on 2026-10-01 via cross-session message.")
+		hits = evaluate_tool(ev("Write", file_path=serve), {"root": root})
+		ok([(h["verdict"], h["tied"]) for h in hits] == [(TIED, ["TK-0010"])],
+		   "a user_review Ticket Master ticket tied the write: %r" % (hits,))
+		fixtures.write_ticket(root, "TK-0014", "verified", "Requested by Ticket Master (uds:x) on 2026-10-01 via cross-session message.")
+		hits = evaluate_tool(ev("Write", file_path=serve), {"root": root})
+		ok([(h["verdict"], h["tied"]) for h in hits] == [(TIED, ["TK-0010", "TK-0014"])],
+		   "a verified Ticket Master ticket did not tie: %r" % (hits,))
 
 		# a file name is a ticket file only as a whole: a trailing line feed ("$" would let it through) is not one
 		ids = {"with a prefix": "TK-", "without a prefix": None}

@@ -330,7 +330,7 @@ use the board." The tickets skill and `.claude/docs/tickets.md` carry the proced
 
 **Class (c), partly checkable.** A write into the ticket system's source is exactly detectable. "Tied to a
 Ticket Master request" is approximated as "a ticket whose body carries the provenance line `Requested by
-Ticket Master ...` is active (`in_progress` or `in_review`)". The provenance line is the skill's format:
+Ticket Master ...` is active (`in_progress`, `in_review` or, from 1.4.0, `verified`)". The provenance line is the skill's format:
 `Requested by <session name> (<from-session id>) on <YYYY-MM-DD> via cross-session message.` Filing the
 request, replying, and telling Ticket Master when an update is committed are about message content, which no
 hook sees. A git pre-commit hook could catch a commit touching the tool, but the rule is about making the
@@ -373,8 +373,10 @@ change from a settings change. `hooklib/policy.py` is the project's own enforce 
    - A delete of an ancestor (`rm -r tools`, `rm -r .claude`) counts. A write into an ancestor (a copy into
      `tools/`) does not.
    - `__pycache__` and `.claude/hooks/tickets/hooklib/policy.py` never count.
-4. **Verdict.** `tied` if `ticket_store.active_from(root, "Ticket Master")` finds an `in_progress` or
-   `in_review` ticket with that provenance line (review fixes happen while the ticket is in review). The
+4. **Verdict.** `tied` if `ticket_store.active_from(root, "Ticket Master")` finds an `in_progress`,
+   `in_review` or `verified` ticket with that provenance line (review fixes happen while the ticket is in review,
+   and landing the work, the commit, while it is verified). A `user_review` ticket does not tie: the work is
+   paused, waiting on the user (1.4.0). The
    session name can be overridden in `config.json` `source_of_truth_session`. Otherwise the verdict is `fork`.
    A ticket file that does not parse (malformed, oversized, or nested deep enough to raise `RecursionError`) is
    skipped and the others still count. A ticket file's number has 4 to 9 digits (more only for a longer

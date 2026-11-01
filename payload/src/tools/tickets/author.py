@@ -10,6 +10,7 @@ create_ticket, write_ticket), so that module stays the store's only writer and e
     python <CLI_DIR>/author.py draft --summary "..." --severity medium --owner <area> --author pm --tags bug [--json]
     python <CLI_DIR>/author.py draft --from-json <file, or - for stdin> [--json]
     python <CLI_DIR>/author.py new <the same input as draft> [--json]
+    python <CLI_DIR>/author.py comment <id> --author pm --body-file <file, or - for stdin> [--json]
     python <CLI_DIR>/author.py --convert <ticket file or id> [--dry-run] [--json]
     python <CLI_DIR>/author.py --convert-all [--dry-run] [--json]
 
@@ -443,7 +444,8 @@ def ticket_record(args):
 	flags = {"summary": args.summary, "severity": args.severity, "owner": args.owner, "author": args.author,
 		"status": args.status, "target": args.target}
 	given = [name for name, value in flags.items() if value is not None]
-	given += [name for name in ("tags", "body_file", "link_ticket", "link_file", "link_commit") if getattr(args, name)]
+	given += [name for name in ("tags", "body_file", "link_ticket", "link_file", "link_commit", "block", "blocked_by",
+		"relates") if getattr(args, name)]
 	if args.from_json is not None:
 		if given:
 			raise refused("--from-json takes no ticket flags; put them in the JSON ({})".format(", ".join(given)))
@@ -452,6 +454,9 @@ def ticket_record(args):
 		if set_by_new:
 			raise refused("{} set by new, not by the input; tickets.py import takes dated records".format(
 				", ".join(set_by_new)))
+		if "comments" in record:
+			raise refused("comments are not taken by draft or new: create the ticket, then add each comment with "
+				"author.py comment <id> --author <who> --body-file <file> (or tickets.py comment)")
 		return record
 	record = {name: value for name, value in flags.items() if value is not None}
 	if args.tags is not None:
@@ -459,6 +464,9 @@ def ticket_record(args):
 	if args.body_file:
 		record["body"] = tickets.read_body(args.body_file)
 	record["links"] = {"tickets": args.link_ticket or [], "files": args.link_file or [], "commits": args.link_commit or []}
+	# The typed links, only when given (a ticket without them reads as before); ids as tickets.py takes them.
+	for kind, add, other in tickets.typed_link_changes(args):
+		tickets.add_unique(record["links"].setdefault(kind, []), [other])
 	return record
 
 
@@ -473,6 +481,15 @@ def built_ticket(args):
 	ticket_id = tickets.next_id()
 	known_ids = {item.get("id") for item in existing if isinstance(item, dict)} | {ticket_id}
 	ticket, problems = tickets.import_ticket(record, ticket_id, tickets.utc_now(), schema, store, groups, known_ids)
+	if not problems:
+		# The tickets its blocks name get the other side when new writes it: they must exist, be usable and stay valid
+		# with it (the new id counted as known), or new writes nothing.
+		try:
+			for other, _ in tickets.other_sides(ticket_id, tickets.new_block_changes(ticket)):
+				problems += [("links", "the other side of its blocks: " + error)
+					for error in tickets.write_problems(other, [ticket_id])]
+		except tickets.ticket_error as error:
+			problems = [("links", str(error))]
 	if problems:
 		shown = ["{}: {}".format(tickets.shown_key(field), problem) for field, problem in problems]
 		groups_missing = [problem for field, problem in problems if field == "tags" and problem.startswith("tag group ")]
@@ -496,9 +513,19 @@ def command_draft(args):
 
 def command_new(args):
 	ticket, store = built_ticket(args)
-	tickets.create_ticket(ticket)
-	emit(args, {"id": ticket["id"], "tag_names": tag_names(store, ticket), "ticket": tickets.ordered(ticket)},
-		["created {} - {}".format(ticket["id"], text(ticket["summary"]))])
+	# The ticket and the other side of each of its blocks are checked, then written together or not at all.
+	written = tickets.create_ticket(ticket)
+	emit(args, {"id": ticket["id"], "tag_names": tag_names(store, ticket), "ticket": tickets.ordered(ticket),
+		"other_sides": written}, ["created {} - {}".format(ticket["id"], text(ticket["summary"]))]
+		+ (["updated {} (the other side of its blocks)".format(", ".join(written))] if written else []))
+	return 0
+
+
+def command_comment(args):
+	refuse_dry_run(args)
+	ticket = tickets.add_comment(tickets.normalize_id(args.id), args.author, tickets.read_body(args.body_file))
+	emit(args, {"id": ticket["id"], "comment": ticket["comments"][-1], "comments": len(ticket["comments"])},
+		["commented on {} ({} comment(s))".format(ticket["id"], len(ticket["comments"]))])
 	return 0
 
 
@@ -676,8 +703,12 @@ def build_parser():
 		sub.add_argument("--link-ticket", action="append", help="another ticket id (repeatable)")
 		sub.add_argument("--link-file", action="append", help="repo path or path:line (repeatable)")
 		sub.add_argument("--link-commit", action="append", help="commit hash (repeatable)")
+		sub.add_argument("--block", action="append", help="a ticket this one blocks (repeatable); new writes the other side")
+		sub.add_argument("--blocked-by", action="append", help="a ticket that blocks this one (repeatable)")
+		sub.add_argument("--relates", action="append", help="a related ticket (repeatable)")
 		sub.add_argument("--from-json", metavar="FILE", help="one JSON object with an import record's keys (summary, "
-			"severity, owner, author, status, target, tags, body, links), or - for stdin; instead of the flags")
+			"severity, owner, author, status, target, tags, body, links {tickets, files, commits, blocks, blocked_by, "
+			"relates_to}; no comments: add them with comment afterwards), or - for stdin; instead of the flags")
 		add_json(sub)
 
 	draft = commands.add_parser("draft", help="print the ticket new would write, or every problem")
@@ -686,6 +717,12 @@ def build_parser():
 	new = commands.add_parser("new", help="write a ticket with the next id, as tickets.py new does")
 	add_ticket_input(new)
 	new.set_defaults(handler=command_new)
+	comment = commands.add_parser("comment", help="append a comment to a ticket, as tickets.py comment does")
+	comment.add_argument("id")
+	comment.add_argument("--author", required=True, help=enum_of("author"))
+	comment.add_argument("--body-file", required=True, help="markdown file for the comment, or - for stdin")
+	add_json(comment)
+	comment.set_defaults(handler=command_comment)
 	return parser
 
 
@@ -703,7 +740,7 @@ def main():
 				raise refused("--convert and --convert-all take no command")
 			return command_convert(args, [ticket_name(args.convert)] if args.convert is not None else tickets.ticket_files())
 		if not args.command:
-			raise refused("give a command (tags, rules, draft, new) or --convert <path> / --convert-all; -h for help")
+			raise refused("give a command (tags, rules, draft, new, comment) or --convert <path> / --convert-all; -h for help")
 		return args.handler(args)
 	except refused as error:
 		return fail(args.json, error.summary, error.problems, error.data)

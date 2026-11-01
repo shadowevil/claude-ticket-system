@@ -2,6 +2,31 @@
 
 Versions use x.y.z numbering (user rule, 2026-09-30): **minor** means the configuration or a JSON structure changed, **patch** is anything smaller such as UI updates and fixes, and **major** is kept for large progress, which is not defined yet. Each entry lists the items it ships, by their numbers (`B<n>`) in the maintainer's internal backlog, and its upgrade steps. The steps in full are in `docs/UPGRADING.md`.
 
+## [1.4.0] - 2026-10-31
+
+**Typed ticket links, comments, two statuses, a new detail view and a localhost viewer.** A **minor**: the ticket schema and `config.json` gain optional fields (user rule, 2026-09-30: "Minor only updates when a configuration or json structure change happens"). Nothing migrates: every new field is optional, so existing tickets and configs validate unchanged. The steps are in `docs/UPGRADING.md` sect. 8 and the per-release notes, 1.4.0.
+
+- **Typed links (B58):** `links.blocks`, `links.blocked_by` and `links.relates_to` are optional ticket-id lists; the old `links.tickets` is still read, as relates-to.
+  - `tickets.py new` and `set`, and `author.py draft` and `new`, take `--block`, `--blocked-by` and `--relates`; `set` also takes `--remove-block`, `--remove-blocked-by` and `--remove-relates`. A block is written on both tickets, all or none.
+  - `list` shows `[blocked by ...]` and a comment count; `show` prints the typed links.
+- **Comments (B58):** a ticket's optional `comments` list of `{author, at, body}`, appended by `tickets.py comment <id> --author --body-file` and `author.py comment`. CLI-only; the viewer stays read-only.
+- **Mentions (B58):** a ticket id written in a body or comment is linked by the viewer, and the detail view gains "Mentions" and "Mentioned by" groups; `show` prints them. Derived, never stored.
+- **The detail view (B58):** subject, tags, body, linked tickets (each clickable), then the comments newest first, 10 at a time with a "load more" button.
+- **`validate` (B58):** fails a typed link that dangles or points at its own ticket, a block listed on one ticket only, a ticket that blocks and is blocked by the same one, and a comment dated before its ticket or in the future; warns about a mentioned id with no ticket.
+- **`new` with a block is all or nothing (B58):** `tickets.py new` and `author.py new` check the new ticket and every other ticket it changes before writing, then write them together; a failure leaves no ticket and changes no other one. `author.py --from-json` refuses `comments` (add them with `comment` once the ticket exists).
+- **The viewer links mentions as `validate` reads them (B58):** no letter, digit, `_` or `-` before the id, and at most the store's digit limit.
+- **Status `verified` (B59):** between `in_review` and `done`: reviewed and green, only landing it left. Active.
+- **Status `user_review` (B60):** the ticket waits on the user; settable from any active status, active, and shown as a filled amber pill with a highlighted count. The schema's `status` enum gains both (a minor); `list --active`, the viewer's order, chips, counts and Active filter, the skill and the rules doc carry them. `done` still needs its commit link.
+- **`page_title` (B57):** optional `config.json` key, the page title and heading used as written; without it, or empty, `<store_name> Tickets`.
+- **Tag names (B57):** the rule is unchanged and now documented: no hyphen, so the tag for `re-docs` is `re_docs`.
+- **The viewer binds 127.0.0.1 by default (B57).** `serve.py --all-interfaces` opts in to the LAN (a phone, another PC), and `--local-only` is accepted and changes nothing. A viewer that the LAN reached must be restarted with the new flag. The maintainer's master site reaches viewers over 127.0.0.1 on the same PC and needs no flag.
+- **Files changed since 1.3.1:** in the tool folder, `tickets.py`, `author.py`, `serve.py`, `app.js`, `index.html` and `style.css`; the schema; the skill and the rules-doc template. In the hooks, `hooklib/ticket_store.py` (T2 also ties on `verified`, not on `user_review`), with its T2 self-test cases in `rules/write/t2_ticket_system_fork.py` and the T2 text in `RULES.md`: with the hooks installed, copy them in by `docs/UPGRADING.md` sect. 6.
+- **Ships:** B57, B58, B59, B60.
+
+**Upgrade** from 1.3.0 or 1.3.1 (`docs/UPGRADING.md` sect. 8):
+1. Get 1.4.0 (pull your clone, or export it).
+2. Stop the viewer, copy the six tool files, merge the schema's `links` and `comments` nodes and add `user_review` and `verified` to its `status` enum, take the rules doc's changed sections and the skill, run `validate`, and start the viewer again (with `--all-interfaces` if the LAN must reach it).
+
 ## [1.3.1-hotfix] - 2026-10-21
 
 **A hotfix to the 1.3.1 public README only: its prompt is easy to copy.** This is not a new release: `VERSION` stays 1.3.1, and no file of the release payload changed (so no configuration or JSON structure change either).

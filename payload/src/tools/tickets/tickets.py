@@ -10,6 +10,8 @@ tool for agents (tag store, tag groups, drafts, migration); it writes through th
     python <CLI_DIR>/tickets.py new --summary "..." --severity medium --owner <area> --author pm \
         --tags bug --body-file <path to a markdown file, or - for stdin>
     python <CLI_DIR>/tickets.py set XY-0004 --status in_progress --add-tag docs
+    python <CLI_DIR>/tickets.py set XY-0004 --blocked-by XY-0002 --relates 7
+    python <CLI_DIR>/tickets.py comment XY-0004 --author pm --body-file <path, or - for stdin>
     python <CLI_DIR>/tickets.py list --active --owner <area>
     python <CLI_DIR>/tickets.py show XY-0004
     python <CLI_DIR>/tickets.py validate
@@ -21,6 +23,12 @@ tag_groups, load_tag_groups) say how many tags of a set a ticket must carry; new
 that breaks one, and validate reports it. While a store moves from 1.2 (tags.json a name map, tickets holding
 names), readers take both forms; writers refuse until `author.py tags --probe` has numbered the store, and
 validate warns until `author.py --convert-all` has turned the tickets' names into ids.
+
+Ticket links come typed (1.4.0): links.blocks, links.blocked_by and links.relates_to, optional lists that writers add
+as needed; the untyped links.tickets is still read, as relates-to. A block is written on both tickets by new and set
+(--block, --blocked-by, and the --remove-* flags), and validate fails a block that has one side only. comment appends
+{author, at, body} to a ticket's optional comments list. Mentions of ticket ids in a body or a comment are derived,
+never stored: show prints them, and validate warns about one naming a ticket the store lacks.
 
 import creates one ticket per record of a JSON array, in input order, with the ids `new` would give and
 the records' own created / updated times: for moving in from another tracker. It validates the store and
@@ -100,7 +108,8 @@ def default_viewer_service(store_name):
 def load_config(path):
 	"""The project's settings from config.json, with every optional key filled in.
 
-	Required: id_prefix, store_name. Optional: first_ticket_number (1), short_name (store_name),
+	Required: id_prefix, store_name. Optional: first_ticket_number (1), short_name (store_name), page_title (the
+	viewer's title and heading, any string, used as written; store_name + ' Tickets'),
 	viewer_service (from store_name), theme_key (viewer_service + '-theme'), server_version
 	(viewer_service), icon_text (id_prefix without the hyphen, at most 3 characters), icon_color (the
 	icons' background as #rrggbb, either case, kept as written; #007acc). viewer_port is read by
@@ -129,6 +138,10 @@ def load_config(path):
 	if not isinstance(number, int) or isinstance(number, bool) or number < 0:
 		raise ticket_error(name + ": first_ticket_number must be a whole number, 0 or more")
 	config.setdefault("short_name", config["store_name"])
+	# The viewer's page title and heading, used as written (1.4.0); without it, store_name plus " Tickets".
+	config.setdefault("page_title", config["store_name"] + " Tickets")
+	if not isinstance(config["page_title"], str):
+		raise ticket_error("{}: page_title must be a string, not {}".format(name, json.dumps(config["page_title"])))
 	config.setdefault("viewer_service", default_viewer_service(config["store_name"]))
 	if isinstance(config["viewer_service"], str):
 		config.setdefault("theme_key", config["viewer_service"] + "-theme")
@@ -175,11 +188,27 @@ ticket_file_pattern = re.compile("^" + re.escape(id_prefix) + r"([0-9]{4," + str
 id_number_max = 10 ** id_max_digits - 1
 # What ticket_file_pattern would match but for the digit count.
 long_ticket_file_pattern = re.compile("^" + re.escape(id_prefix) + r"([0-9]{" + str(id_max_digits + 1) + r",})\.json$")
+# A ticket id mentioned in text (mentioned_ids): the prefix after a non-word character, digits not followed by one.
+mention_id_pattern = re.compile(r"(?<![\w-])(" + re.escape(id_prefix) + r"[0-9]{4," + str(id_max_digits) + r"})(?![\w])")
 # Canonical field order on disk, so every file diffs the same way.
 field_order = ["id", "summary", "status", "severity", "owner_area", "target_patch", "tags",
-	"author", "created", "updated", "links", "body"]
+	"author", "created", "updated", "links", "body", "comments"]
+# The links every ticket carries (the schema requires them; `new` writes them empty).
 link_kinds = ["commits", "files", "tickets"]
-active_statuses = ["open", "in_progress", "in_review", "blocked"]
+# The typed ticket links (1.4.0): optional, so a ticket from before them validates unchanged; a writer adds one when a
+# ticket gets its first such link and drops it again when the list empties. links.tickets, the untyped list from
+# before, is read as relates-to.
+typed_link_kinds = ["blocks", "blocked_by", "relates_to"]
+ticket_link_kinds = ["tickets"] + typed_link_kinds
+# A block is written on both tickets: A blocks B is B blocked_by A. Writers write the other side too (other_sides);
+# validate reports a pair that has only one side (block_pair_errors).
+reverse_link = {"blocks": "blocked_by", "blocked_by": "blocks"}
+# A mention of a ticket in a body or a comment (mention_id_pattern): inline code and fenced code blocks are left out,
+# as the viewer leaves code alone when it links ids.
+code_pattern = re.compile(r"```.*?(?:```|\Z)|~~~.*?(?:~~~|\Z)|`[^`\n]*`", re.S)
+# Every status but done and wont_do. user_review (the user is to look at it) and verified (reviewed and green, only
+# landing it left) are 1.4.0; a store whose schema lacks them lists the same tickets.
+active_statuses = ["open", "in_progress", "in_review", "user_review", "verified", "blocked"]
 default_target_patch = "next"
 # Column widths for `list`; the summary takes what is left of a 120-column console.
 list_summary_width = 64
@@ -190,7 +219,7 @@ timestamp_pattern = re.compile(r"^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[
 import_required = ["summary", "severity", "owner_area", "author"]
 import_aliases = {"owner_area": ["owner", "owner_area"], "target_patch": ["target", "target_patch"]}
 import_keys = ["summary", "severity", "owner", "owner_area", "author", "status", "target", "target_patch",
-	"tags", "body", "links", "created", "updated", "id"]
+	"tags", "body", "links", "comments", "created", "updated", "id"]
 # At most this many FAIL lines are printed, each cut to this many characters.
 import_shown_failures = 100
 import_failure_width = 300
@@ -300,7 +329,7 @@ def write_temp(ticket, kind, outcome):
 	return temp
 
 
-def write_ticket(ticket):
+def write_ticket(ticket, command="set"):
 	"""Rewrite an existing ticket (`set`): written whole to a temporary name, then moved over the file (os.replace,
 	tried again for a moment while Windows reports the file in use). It never writes into the file in place. Any failure,
 	and Ctrl+C, leaves the ticket as it was and removes the temporary file; a move that stays refused (another process
@@ -321,31 +350,58 @@ def write_ticket(ticket):
 			# Windows refuses the move while another process keeps the file open. Writing into the file instead could
 			# leave it cut off, so the command fails.
 			detail = "moving the new version over it was refused: {}".format(error.strerror or error)
-			outcome += "; another process may hold the file open: close it, then run set again"
+			# command: what to run again, as the user typed it (set, or new for the other side of a new ticket's block).
+			outcome += "; another process may hold the file open: close it, then run {} again".format(command)
 		if left:
 			outcome += "; its temporary file {} is left: run `tickets.py import --abort-interrupted`".format(left[0])
 		raise write_failed(ticket, detail, outcome)
 	return path
 
 
+def new_block_changes(ticket):
+	"""The block changes a new ticket makes on the tickets it names (other_sides): each of its blocks and blocked_by."""
+	links = ticket.get("links")
+	if not isinstance(links, dict):
+		return []
+	return [(kind, True, other) for kind in sorted(reverse_link) if isinstance(links.get(kind), list)
+		for other in links[kind]]
+
+
 def create_ticket(ticket):
-	"""Write a new ticket (`new`) under the next id and return that id. The file is created exclusively: when
-	another writer took the id meanwhile, the next one is taken instead, and no file is ever replaced."""
+	"""Write a new ticket (`new`) under the next id, with the other side of each of its blocks (other_sides); the ids of
+	the other tickets written. The file is created exclusively: when another writer took the id meanwhile, the next one
+	is taken instead, and no file is ever replaced. The ticket and every other ticket it changes are checked before
+	anything is written, and they are written together or not at all, as `set` writes: when an other side fails, the
+	new ticket is removed again (write_together puts back the other sides already written)."""
+	no_ticket = "no ticket was created"
 	for attempt in range(new_id_attempts):
 		ticket["id"] = next_id()
 		if attempt == 0:
 			# Once is enough: a later id changes no answer. A link to it was refused here as dangling.
 			check_before_write(ticket)
-		temp = write_temp(ticket, "new", "no ticket was created")
+		# The other sides name this id, so they are read and checked again for each id tried, the new id counted as known.
+		pairs = other_sides(ticket["id"], new_block_changes(ticket))
+		for other, _ in pairs:
+			check_before_write(other, [ticket["id"]])
+		temp = write_temp(ticket, "new", no_ticket)
+		placed = []
 		try:
-			place_new_file(temp, ticket_path(ticket["id"]), [])
-			return ticket["id"]
+			place_new_file(temp, ticket_path(ticket["id"]), placed)
 		except FileExistsError:
-			pass
+			continue
 		except OSError as error:
-			raise write_failed(ticket, error, "no ticket was created")
+			raise write_failed(ticket, error, no_ticket)
 		finally:
 			remove_created([temp])
+		try:
+			write_together(pairs, "new")
+		except BaseException as error:
+			left = remove_created(placed)
+			if not isinstance(error, ticket_error):
+				raise
+			outcome = no_ticket if not left else "{} could not be removed again: remove it, then run validate".format(left[0])
+			raise ticket_error("the other side of its blocks was not written ({}); {}".format(error, outcome))
+		return [other["id"] for other, _ in pairs]
 	raise ticket_error("no free id after {} tries: other writers kept taking the next one; run it again".format(
 		new_id_attempts))
 
@@ -959,15 +1015,20 @@ def refuse_unusable_ticket(ticket, ticket_id, args):
 		problem = "tags is {}, not a list".format(shown(ticket["tags"]))
 	elif "links" in ticket and not isinstance(links, dict):
 		problem = "links is {}, not an object".format(shown(links))
-	elif args.append_body_file and "body" in ticket and not isinstance(ticket["body"], str):
+	elif getattr(args, "append_body_file", None) and "body" in ticket and not isinstance(ticket["body"], str):
 		problem = "body is {}, not text to append to".format(shown(ticket["body"]))
+	elif "comments" in ticket and not isinstance(ticket["comments"], list):
+		problem = "comments is {}, not a list".format(shown(ticket["comments"]))
 	else:
-		for kind in link_kinds:
+		for kind in link_kinds + typed_link_kinds:
 			if isinstance(links, dict) and kind in links and not isinstance(links[kind], list):
 				problem = "links.{} is {}, not a list".format(kind, shown(links[kind]))
 				break
 	if problem:
-		raise ticket_error("{} cannot be changed with set: {}; fix the file, then run validate".format(ticket_id, problem))
+		# other_side: the ticket is the other side of a block another ticket is given (other_sides).
+		how = "to take the other side of a block" if getattr(args, "other_side", False) else "with " + (
+			getattr(args, "command", None) or "set")
+		raise ticket_error("{} cannot be changed {}: {}; fix the file, then run validate".format(ticket_id, how, problem))
 
 
 def next_id():
@@ -1108,17 +1169,89 @@ def store_errors(ticket, store, groups, known_ids, file_name=None, invalid_tags=
 		errors += [("tags", problem) for problem in problems]
 		if not problems:
 			errors += [("tags", problem) for problem in group_errors(ids, groups, store)]
-	for linked in ticket["links"]["tickets"]:
-		if not id_pattern.fullmatch(linked):
-			errors.append(("links.tickets", "ticket link {} does not start with this store's prefix {} (config.json id_prefix)".format(
-				linked, id_prefix)))
-		elif linked == ticket["id"]:
-			errors.append(("links.tickets", "links to itself"))
-		elif linked not in known_ids:
-			errors.append(("links.tickets", "dangling ticket link {}".format(linked)))
+	for kind in ticket_link_kinds:
+		field = "links." + kind
+		linked_ids = ticket["links"].get(kind, [])
+		# An older project schema may not know the typed lists; one that is not a list of text is not checked further.
+		if not isinstance(linked_ids, list):
+			continue
+		for linked in linked_ids:
+			if not isinstance(linked, str):
+				continue
+			if not id_pattern.fullmatch(linked):
+				errors.append((field, "ticket link {} does not start with this store's prefix {} (config.json id_prefix)".format(
+					linked, id_prefix)))
+			elif linked == ticket["id"]:
+				errors.append((field, "links to itself"))
+			elif linked not in known_ids:
+				errors.append((field, "dangling ticket link {}".format(linked)))
+	links = ticket["links"]
+	both = [linked for linked in links.get("blocks", []) if isinstance(links.get("blocked_by"), list)
+		and linked in links["blocked_by"]] if isinstance(links.get("blocks"), list) else []
+	for linked in both:
+		errors.append(("links.blocks", "both blocks and is blocked by {}".format(linked)))
+	comments = ticket.get("comments", [])
+	for index, comment in enumerate(comments if isinstance(comments, list) else []):
+		if isinstance(comment, dict) and isinstance(comment.get("at"), str) and comment["at"] < ticket["created"]:
+			errors.append(("comments[{}]".format(index), "the comment is dated before the ticket was created"))
 	if ticket["updated"] < ticket["created"]:
 		errors.append(("updated", "updated is earlier than created"))
 	return errors
+
+
+def future_comment_errors(checked):
+	"""validate: one problem per comment dated after now, the check (and the tolerance: none) `import` makes. Only
+	`comment` writes a comment, stamped now, so a later date was written by hand or on a clock that runs ahead."""
+	now = utc_now()
+	errors = []
+	for ticket in checked:
+		comments = ticket.get("comments")
+		for index, comment in enumerate(comments if isinstance(comments, list) else []):
+			if isinstance(comment, dict) and is_timestamp(comment.get("at")) and comment["at"] > now:
+				errors.append("{}: comments[{}].at: {} is in the future (now is {})".format(ticket["id"], index,
+					comment["at"], now))
+	return errors
+
+
+def block_pair_errors(checked, by_id, set_hint=True):
+	"""The blocks that have only one side, as (ticket id, what is wrong) pairs: for each ticket of checked, every id in its
+	links.blocks must list it in that ticket's links.blocked_by, and the other way round. by_id: every ticket by id. A link
+	to a ticket by_id lacks is a dangling link, reported by store_errors, not here. set_hint: end each with the set call
+	that finishes the pair (not for `import`, whose tickets do not exist yet)."""
+	errors = []
+	for ticket in checked:
+		links = ticket.get("links") if isinstance(ticket, dict) else None
+		if not isinstance(links, dict):
+			continue
+		for kind, reverse in sorted(reverse_link.items()):
+			linked_ids = links.get(kind, [])
+			for linked in linked_ids if isinstance(linked_ids, list) else []:
+				other = by_id.get(linked) if isinstance(linked, str) else None
+				if not isinstance(other, dict) or other is ticket:
+					continue
+				other_links = other.get("links")
+				listed_back = other_links.get(reverse, []) if isinstance(other_links, dict) else []
+				if not isinstance(listed_back, list) or ticket["id"] not in listed_back:
+					problem = "links.{} names {}, but {}'s links.{} lacks {}".format(kind, linked, linked, reverse, ticket["id"])
+					if set_hint:
+						problem += ": run tickets.py set {} --{} {}".format(ticket["id"],
+							kind.replace("_", "-").replace("blocks", "block"), linked)
+					errors.append((ticket["id"], problem))
+	return errors
+
+
+def mentioned_ids(ticket):
+	"""The ticket ids a ticket's body and comments mention (mention_id_pattern), outside code, in the order first met,
+	once each, without its own id. Derived, never stored."""
+	texts = [ticket.get("body")]
+	comments = ticket.get("comments")
+	for comment in comments if isinstance(comments, list) else []:
+		texts.append(comment.get("body") if isinstance(comment, dict) else None)
+	found = []
+	for text in texts:
+		if isinstance(text, str):
+			add_unique(found, mention_id_pattern.findall(code_pattern.sub(" ", text)))
+	return [ticket_id for ticket_id in found if ticket_id != ticket.get("id")]
 
 
 def has_line_break(text):
@@ -1199,26 +1332,35 @@ def validate_store():
 			errors.append(name + ": not a JSON object")
 			continue
 		errors += ticket_errors(ticket, schema, store, groups, known_ids, name, invalid_tags)
+	by_id = {ticket["id"]: ticket for ticket in tickets if isinstance(ticket, dict) and isinstance(ticket.get("id"), str)}
+	errors += ["{}: {}".format(ticket_id, problem) for ticket_id, problem in block_pair_errors(list(by_id.values()), by_id)]
+	errors += future_comment_errors(by_id.values())
+	for ticket in by_id.values():
+		missing = [linked for linked in mentioned_ids(ticket) if linked not in by_id]
+		if missing:
+			warnings.append("{}: mentions {} in its body or comments, which is not in the store".format(ticket["id"],
+				", ".join(missing)))
 	named = sum(1 for ticket in tickets if carries_tag_names(ticket))
 	if named:
 		warnings.append("{} tickets still carry tag names: run author.py --convert-all".format(named))
 	return len(tickets), errors, warnings
 
 
-def write_problems(ticket):
+def write_problems(ticket, also_known=()):
 	"""What stops a writer from writing this ticket (its tags already ids), one string each: the store's state, the
-	tag groups, the schema, the tags and the links. Raises ticket_error when tags.json or config.json's tag_groups
-	refuses every write."""
+	tag groups, the schema, the tags and the links. also_known: ids written in the same step (a new ticket, for the
+	other side of its blocks), so a link to one is not dangling. Raises ticket_error when tags.json or config.json's
+	tag_groups refuses every write."""
 	store = writable_tag_store()
 	groups = load_tag_groups(store)
 	schema = read_schema()
 	tickets, _ = load_all()
-	known_ids = {item.get("id") for item in tickets if isinstance(item, dict)} | {ticket["id"]}
+	known_ids = {item.get("id") for item in tickets if isinstance(item, dict)} | {ticket["id"]} | set(also_known)
 	return ticket_errors(ticket, schema, store, groups, known_ids)
 
 
-def check_before_write(ticket):
-	errors = write_problems(ticket)
+def check_before_write(ticket, also_known=()):
+	errors = write_problems(ticket, also_known)
 	if errors:
 		raise ticket_error("refusing to write an invalid ticket:\n  " + "\n  ".join(errors))
 
@@ -1260,6 +1402,99 @@ def apply_link_arguments(ticket, args):
 			add_unique(ticket.setdefault("links", {}).setdefault(kind, []), items)
 
 
+# The typed link flags: (argparse dest, link kind, add or remove).
+typed_link_flags = [("block", "blocks", True), ("blocked_by", "blocked_by", True), ("relates", "relates_to", True),
+	("remove_block", "blocks", False), ("remove_blocked_by", "blocked_by", False), ("remove_relates", "relates_to", False)]
+
+
+def typed_link_changes(args):
+	"""The typed link flags given, as [(kind, add, ticket id)] in flag order; each flag is repeatable and takes
+	comma-separated ids (bare numbers too, as --link-ticket)."""
+	changes = []
+	for dest, kind, add in typed_link_flags:
+		for value in getattr(args, dest, None) or []:
+			changes += [(kind, add, normalize_id(item)) for item in split_list(value)]
+	return changes
+
+
+def apply_typed_links(ticket, changes):
+	"""Apply typed link changes to one ticket. An add creates the list when the ticket lacks it; a remove that empties a
+	typed list drops the key, so a ticket without typed links stays as an older schema reads it. Removing a relates-to
+	also takes the id out of the untyped links.tickets, which is read as relates-to. A ticket_error for a link to itself."""
+	for kind, add, other in changes:
+		if other == ticket.get("id"):
+			raise ticket_error("{} cannot link to itself".format(other))
+		if add:
+			add_unique(ticket.setdefault("links", {}).setdefault(kind, []), [other])
+			continue
+		links = ticket.get("links")
+		if not isinstance(links, dict):
+			continue
+		for name in [kind] + (["tickets"] if kind == "relates_to" else []):
+			if isinstance(links.get(name), list):
+				links[name] = [item for item in links[name] if item != other]
+		if kind in typed_link_kinds and links.get(kind) == []:
+			del links[kind]
+
+
+def copied(value):
+	return json.loads(json.dumps(value))
+
+
+def other_sides(ticket_id, changes):
+	"""The other tickets a set of block changes writes (reverse_link), as [(changed ticket, ticket as read)]: each read,
+	changed and stamped `updated`, not written. A ticket that is not in the store is skipped for a remove (only this side
+	holds the link) and refused for an add, as a dangling link."""
+	others = {}
+	order = []
+	for kind, add, other in changes:
+		reverse = reverse_link.get(kind)
+		if reverse is None:
+			continue
+		if other not in others:
+			if not os.path.isfile(ticket_path(other)):
+				if add:
+					raise ticket_error("no such ticket: {} (a block is written on both tickets)".format(other))
+				continue
+			loaded = load_ticket(other)
+			refuse_unusable_ticket(loaded, other, argparse.Namespace(other_side=True))
+			others[other] = (loaded, copied(loaded))
+			order.append(other)
+		apply_typed_links(others[other][0], [(reverse, add, ticket_id)])
+	now = utc_now()
+	result = []
+	for other in order:
+		changed, original = others[other]
+		if changed != original:
+			changed["updated"] = now
+			result.append((changed, original))
+	return result
+
+
+def write_together(pairs, command="set"):
+	"""Write each (ticket, ticket as read) with write_ticket, in order. When one fails, the ones already written are put
+	back as they were read, so a block is never left on one side by this command; a ticket_error says what happened. Two
+	files cannot be replaced in one step: only a killed process leaves a pair half written, which validate reports
+	(block_pair_errors)."""
+	written = []
+	for ticket, original in pairs:
+		try:
+			write_ticket(ticket, command)
+		except BaseException as error:
+			left = []
+			for done, before in reversed(written):
+				try:
+					write_ticket(before)
+				except ticket_error:
+					left.append(done["id"])
+			if not isinstance(error, ticket_error):
+				raise
+			outcome = "the others were put back" if not left else "{} could not be put back: run validate".format(
+				", ".join(left))
+			raise ticket_error("{}; {}".format(error, outcome) if written else str(error))
+		written.append((ticket, original))
+
+
 def command_new(args):
 	refuse_line_breaks(args)
 	store = writable_tag_store()
@@ -1279,8 +1514,12 @@ def command_new(args):
 		"body": read_body(args.body_file) if args.body_file else "",
 	}
 	apply_link_arguments(ticket, args)
-	create_ticket(ticket)
+	apply_typed_links(ticket, typed_link_changes(args))
+	# The ticket and the other side of each of its blocks are checked first, then written together (create_ticket).
+	written = create_ticket(ticket)
 	print("created {} - {}".format(ticket["id"], ascii_text(ticket["summary"])))
+	if written:
+		print("updated {} (the other side of its blocks)".format(", ".join(written)))
 
 
 def command_set(args):
@@ -1289,6 +1528,7 @@ def command_set(args):
 	ticket_id = normalize_id(args.id)
 	ticket = load_ticket(ticket_id)
 	refuse_unusable_ticket(ticket, ticket_id, args)
+	original = copied(ticket)
 	for field, value in [("summary", args.summary), ("status", args.status), ("severity", args.severity),
 			("owner_area", args.owner), ("target_patch", args.target), ("author", args.author)]:
 		if value is not None:
@@ -1310,11 +1550,43 @@ def command_set(args):
 		# Appended as its own paragraph block; the existing body is never rewritten.
 		ticket["body"] = ticket.get("body", "").rstrip("\n") + "\n\n" + read_body(args.append_body_file).strip("\n") + "\n"
 	apply_link_arguments(ticket, args)
+	changes = typed_link_changes(args)
+	apply_typed_links(ticket, changes)
 	ticket["updated"] = utc_now()
-	# The changed ticket is checked whole, as `new` checks one: nothing is written unless it is valid.
+	# The changed ticket is checked whole, as `new` checks one: nothing is written unless it is valid. So is each other
+	# ticket a block writes (other_sides); then all are written, or none stays changed (write_together).
+	check_before_write(ticket)
+	others = other_sides(ticket_id, changes)
+	for other, _ in others:
+		check_before_write(other)
+	write_together([(ticket, original)] + others)
+	print(ascii_text("updated {} ({} {} {})".format(ticket["id"], ticket["status"], ticket["severity"], ticket["owner_area"])))
+	if others:
+		print("updated {} (the other side of the blocks)".format(", ".join(other["id"] for other, _ in others)))
+
+
+def add_comment(ticket_id, author, body):
+	"""Append a comment {author, at, body} to a ticket and stamp `updated` with the same time; the ticket as written.
+	Comments are only appended, never edited, in the order written (the viewer shows the newest first)."""
+	body = body.strip("\n")
+	if not body.strip():
+		raise ticket_error("the comment is empty; nothing written")
+	ticket = load_ticket(ticket_id)
+	refuse_unusable_ticket(ticket, ticket_id, argparse.Namespace(command="comment"))
+	store = writable_tag_store()
+	if isinstance(ticket.get("tags"), list):
+		ticket["tags"] = [stored_tag_id(store, tag) or tag for tag in ticket["tags"]]
+	now = utc_now()
+	ticket.setdefault("comments", []).append({"author": author, "at": now, "body": body})
+	ticket["updated"] = now
 	check_before_write(ticket)
 	write_ticket(ticket)
-	print(ascii_text("updated {} ({} {} {})".format(ticket["id"], ticket["status"], ticket["severity"], ticket["owner_area"])))
+	return ticket
+
+
+def command_comment(args):
+	ticket = add_comment(normalize_id(args.id), args.author, read_body(args.body_file))
+	print("commented on {} ({} comment(s))".format(ticket["id"], len(ticket["comments"])))
 
 
 def ascii_text(text):
@@ -1384,6 +1656,14 @@ def command_list(args):
 		summary = ascii_text(text_field(ticket, "summary", ""))
 		if len(summary) > list_summary_width:
 			summary = summary[:list_summary_width - 3] + "..."
+		# After the summary: who blocks the ticket, and how many comments it has.
+		links = ticket.get("links")
+		blockers = links.get("blocked_by") if isinstance(links, dict) else None
+		if isinstance(blockers, list) and blockers:
+			summary += " [blocked by {}]".format(", ".join(str(item) for item in blockers))
+		comments = ticket.get("comments")
+		if isinstance(comments, list) and comments:
+			summary += " [{} comment(s)]".format(len(comments))
 		print(ascii_text("{:<{}} {:<11} {:<8} {:<7} {}".format(text_field(ticket, "id", "?"), id_width,
 			text_field(ticket, "status", "?"), text_field(ticket, "severity", "?"), text_field(ticket, "owner_area", "?"),
 			summary)))
@@ -1398,7 +1678,7 @@ def command_show(args):
 	ticket = load_ticket(ticket_id)
 	store = reader_tag_store()
 	for field in field_order:
-		if field in ("body", "links"):
+		if field in ("body", "links", "comments"):
 			continue
 		value = ticket.get(field)
 		if field == "tags" and isinstance(value, list):
@@ -1407,14 +1687,35 @@ def command_show(args):
 			value = ", ".join(str(item) for item in value)
 		print("{:<15} {}".format(field + ":", ascii_text(str(value))))
 	links = ticket.get("links")
-	for kind in link_kinds:
+	for kind in link_kinds + typed_link_kinds:
 		items = links.get(kind) if isinstance(links, dict) else None
 		if items:
 			text = ", ".join(str(item) for item in items) if isinstance(items, list) else str(items)
 			print("{:<15} {}".format("links." + kind + ":", ascii_text(text)))
+	# Mentions are derived from the text (mentioned_ids), never stored.
+	mentions = mentioned_ids(ticket)
+	if mentions:
+		print("{:<15} {}".format("mentions:", ", ".join(mentions)))
+	others, _ = load_all()
+	mentioned_by = [other["id"] for other in others if isinstance(other, dict) and isinstance(other.get("id"), str)
+		and other["id"] != ticket_id and ticket_id in mentioned_ids(other)]
+	if mentioned_by:
+		print("{:<15} {}".format("mentioned by:", ", ".join(mentioned_by)))
 	print("")
 	body = ticket.get("body", "")
 	print(ascii_text(body if isinstance(body, str) else json.dumps(body)))
+	comments = ticket.get("comments")
+	if isinstance(comments, list) and comments:
+		print("")
+		print("comments ({}, newest first):".format(len(comments)))
+		for comment in reversed(comments):
+			if not isinstance(comment, dict):
+				print("  " + ascii_text(one_line(shown(comment))))
+				continue
+			print("")
+			print(ascii_text("-- {} at {}".format(comment.get("author"), comment.get("at"))))
+			text = comment.get("body")
+			print(ascii_text(text if isinstance(text, str) else json.dumps(text)))
 	schema = read_schema()
 	errors = schema_errors(schema, schema, ticket, ticket_id)
 	if not errors and ticket.get("id") != ticket_id:
@@ -1549,8 +1850,9 @@ def import_ticket(record, ticket_id, now, schema, store, groups, known_ids):
 		given = links
 		links = {kind: given.get(kind, []) for kind in link_kinds}
 		links.update({kind: value for kind, value in given.items() if kind not in links})
-		if isinstance(links["tickets"], list):
-			links["tickets"] = [normalized_link(item) for item in links["tickets"]]
+		for kind in ticket_link_kinds:
+			if isinstance(links.get(kind), list):
+				links[kind] = [normalized_link(item) for item in links[kind]]
 	body = record.get("body", "")
 	ticket = {
 		"id": ticket_id,
@@ -1566,6 +1868,11 @@ def import_ticket(record, ticket_id, now, schema, store, groups, known_ids):
 		"links": links,
 		"body": body.replace("\r\n", "\n") if isinstance(body, str) else body,
 	}
+	if "comments" in record:
+		ticket["comments"] = record["comments"]
+		for index, comment in enumerate(record["comments"] if isinstance(record["comments"], list) else []):
+			if isinstance(comment, dict) and isinstance(comment.get("at"), str) and comment["at"] > now:
+				problems.append(("comments[{}].at".format(index), "{} is in the future (now is {})".format(comment["at"], now)))
 	schema_passed = True
 	for field, problem in line_break_errors(ticket):
 		schema_passed = False
@@ -2152,6 +2459,9 @@ def command_import(args):
 	batch = []
 	failures = []
 	failed_records = 0
+	# The records that built, for the block pairs: an import writes no existing ticket, so both sides of a block must be
+	# in the batch's records (or the other side already in the store).
+	built = {}
 	for index, (record, ticket_id) in enumerate(zip(records, ids)):
 		ticket, problems = import_ticket(record, ticket_id, now, schema, store, groups, known_ids)
 		if not problems:
@@ -2160,10 +2470,23 @@ def command_import(args):
 				problems = [(field, "holds text that cannot be written as UTF-8 (half of a surrogate pair)")]
 			else:
 				batch.append((ticket_id, data))
+		if not problems:
+			built[ticket_id] = (index, ticket)
 		if problems:
 			failed_records += 1
 		for field, problem in problems:
 			failures.append("FAIL record {} ({}): {}: {}".format(index, ticket_id, shown_key(field), problem))
+	if built:
+		existing, _ = load_all()
+		by_id = {item["id"]: item for item in existing if isinstance(item, dict) and isinstance(item.get("id"), str)}
+		by_id.update({ticket_id: ticket for ticket_id, (_, ticket) in built.items()})
+		pair_failed = set()
+		for ticket_id, problem in block_pair_errors([ticket for _, ticket in built.values()], by_id, set_hint=False):
+			pair_failed.add(ticket_id)
+			failures.append("FAIL record {} ({}): links: {}. A block is stored on both tickets and an import never changes "
+				"a ticket already in the store: give the block to both records, or drop it here and add it after the import "
+				"with tickets.py set {} --block / --blocked-by".format(built[ticket_id][0], ticket_id, problem, ticket_id))
+		failed_records += len(pair_failed)
 	for failure in failures[:import_shown_failures]:
 		line = ascii_text(one_line(failure))
 		print(line if len(line) <= import_failure_width else line[:import_failure_width - 3] + "...")
@@ -2205,6 +2528,16 @@ def build_parser():
 		sub.add_argument("--link-ticket", action="append", help="another ticket id (repeatable)")
 		sub.add_argument("--link-file", action="append", help="repo path or path:line (repeatable)")
 		sub.add_argument("--link-commit", action="append", help="commit hash (repeatable)")
+		sub.add_argument("--block", action="append", help="this ticket blocks that one (ids, comma-separated, "
+			"repeatable); the other ticket gets blocked_by")
+		sub.add_argument("--blocked-by", action="append", help="this ticket is blocked by that one (ids, repeatable); the "
+			"other ticket gets blocks")
+		sub.add_argument("--relates", action="append", help="this ticket relates to that one (ids, repeatable)")
+
+	def add_link_removes(sub):
+		sub.add_argument("--remove-block", action="append", help="drop a blocks link, on both tickets (ids, repeatable)")
+		sub.add_argument("--remove-blocked-by", action="append", help="drop a blocked_by link, on both tickets")
+		sub.add_argument("--remove-relates", action="append", help="drop a relates-to link (also from links.tickets)")
 
 	new = commands.add_parser("new", help="create a ticket with the next id")
 	new.add_argument("--summary", required=True)
@@ -2233,11 +2566,18 @@ def build_parser():
 	body_source.add_argument("--body-file", help="replace the body from a markdown file, or - for stdin")
 	body_source.add_argument("--append-body-file", help="append a markdown file (or - for stdin) to the body")
 	add_links(change)
+	add_link_removes(change)
 	change.set_defaults(handler=command_set)
+
+	comment = commands.add_parser("comment", help="append a comment to a ticket (bumps updated)")
+	comment.add_argument("id")
+	comment.add_argument("--author", required=True, choices=enum_of("author"))
+	comment.add_argument("--body-file", required=True, help="markdown file for the comment, or - for stdin")
+	comment.set_defaults(handler=command_comment)
 
 	listing = commands.add_parser("list", help="list tickets, filtered")
 	listing.add_argument("--status", help="comma-separated statuses")
-	listing.add_argument("--active", action="store_true", help="open, in_progress, in_review and blocked only")
+	listing.add_argument("--active", action="store_true", help="every status but done and wont_do ({})".format(", ".join(active_statuses)))
 	listing.add_argument("--severity", help="comma-separated severities")
 	listing.add_argument("--owner", help="comma-separated owner areas")
 	listing.add_argument("--target", help="target patch")
@@ -2255,7 +2595,7 @@ def build_parser():
 	importing = commands.add_parser("import", help="create many tickets from a JSON file, all or none",
 		description="Create one ticket per record of a JSON array, in input order, with the next ids. The store "
 			"and every record are validated first, and nothing is written unless all pass. A record: summary, "
-			"severity, owner, author (required); status, target, tags (names or ids), body, links {tickets, files, commits}, "
+			"severity, owner, author (required); status, target, tags (names or ids), body, links {tickets, files, commits, blocks, blocked_by, relates_to}, comments, "
 			"created, updated, id (optional). created and updated are UTC, written YYYY-MM-DDTHH:MM:SSZ, and not "
 			"in the future; a ticket link may name a ticket of the same file. A failure or Ctrl+C part-way removes "
 			"what the run wrote. After a killed import, the next one refuses to start until --abort-interrupted "

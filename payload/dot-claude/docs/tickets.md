@@ -42,6 +42,7 @@ Contents: 1. where tickets live - 2. the fields - 3. filing and updating (the CL
 | `store_name` | yes: the name the viewer and CLI show | error |
 | `first_ticket_number` | no | `1` |
 | `short_name` | no: the home-screen name | `store_name` |
+| `page_title` | no: the viewer's page title and heading, any string, used as written (1.4.0); an empty string falls back to `<store_name> Tickets`. A non-string stops the CLI and the viewer with an error naming the key | `store_name` + ` Tickets` |
 | `viewer_port` | for `serve.py`, unless `--port` is given | error naming the key |
 | `viewer_service` | no: the `/api/health` marker | lowercase `store_name`, other characters as `-`, plus `-tickets` |
 | `theme_key` | no: the browser storage key for the theme | `viewer_service` + `-theme` |
@@ -65,15 +66,17 @@ deleted: it moves to `done` or `wont_do` and stays.
 | `summary` | one line (max 200) saying what is wrong or wanted; a line break is refused |
 | `body` | GitHub-flavoured markdown (tables, task lists, fenced code, links, images): the finding, the **measured facts**, the ask, and "done when". Cite code by function or `file:line (as of <date>)`. A peer board's ticket is cited here, by id and absolute JSON path (sect. 5a) |
 | `tags` | ids from the tag store, `tags.json`, e.g. `[1, 4]`. You give and read them by name: the CLI and `author.py` store the id. Add a tag first with `author.py tags add` (with a colour readable on both themes). The tag groups say which a ticket must carry (sect. 3). A tag for issues a peer sends is `peer_<project>` |
-| `status` | `open` / `in_progress` / `in_review` / `blocked` / `done` / `wont_do`. The viewer shows `open` as a gray **TODO** and `in_review` as **In review**; the stored values stay as written. `in_review` counts as active |
+| `status` | `open` / `in_progress` / `in_review` / `user_review` / `verified` / `blocked` / `done` / `wont_do`. The viewer shows `open` as a gray **TODO**, `in_review` as **In review**, `user_review` as a highlighted **User review** and `verified` as **Verified**; the stored values stay as written. Everything but `done` and `wont_do` counts as active. `user_review` and `verified` are 1.4.0 (sect. 5 says when to use each) |
 | `severity` | `critical` (loses work or data, or blocks everyone) / `high` (blocks a test or gives false evidence) / `medium` (wrong behaviour with a workaround) / `low` (cleanup, cosmetics, questions) |
 | `owner_area` | the team area that writes the fix: `<AREAS>`, one line each on what it covers |
 | `target_patch` | free text: `next`, a version, or `backlog` for work nobody has scheduled |
 | `created`, `updated` | ISO 8601 UTC to the second (`2026-09-29T21:40:00Z`). The CLI sets both; `set` bumps `updated` |
 | `author` | who filed it: `<AUTHORS>` (typically `user`, `pm`, the team's roles, and `peer` for an issue another project's session sends, sect. 5a) |
-| `links.tickets` | related tickets **on this board** - `<PREFIX>` ids that must exist (`validate` fails a dangling one). A peer's id goes in the body |
+| `links.blocks`, `links.blocked_by`, `links.relates_to` | typed links to tickets **on this board** (1.4.0) - `<PREFIX>` ids that must exist (`validate` fails a dangling one or a link to itself). All optional: a ticket without them validates as before, and a writer adds the list at its first link and drops it when it empties. A block is written on **both** tickets (A `blocks` B is B `blocked_by` A). A peer's id goes in the body |
+| `links.tickets` | the untyped list from before 1.4.0, still read, as relates-to. New links use the typed lists |
 | `links.files` | repo-relative paths, optionally `path:line` or `path:line-line` |
 | `links.commits` | commit hashes (7-40 hex), e.g. the commit that fixed it |
+| `comments` | optional list of `{author, at, body}`, oldest first, appended by `comment` (sect. 3); `author` is the `author` enum, `at` a UTC timestamp, `body` markdown. Never edited. The viewer shows them newest first |
 
 ## 3. Filing and updating - the CLI
 
@@ -86,10 +89,15 @@ python <CLI_DIR>/tickets.py new --summary "<one line>" \
     --body-file <SCRATCH>/body.md --link-file <path>:<line> --link-ticket <PREFIX>0004
 python <CLI_DIR>/tickets.py set <PREFIX>0005 --status in_progress
 python <CLI_DIR>/tickets.py set <PREFIX>0005 --status in_review
+python <CLI_DIR>/tickets.py set <PREFIX>0005 --status verified
+python <CLI_DIR>/tickets.py set <PREFIX>0005 --status user_review
 python <CLI_DIR>/tickets.py set <PREFIX>0005 --status done --link-commit 1a2b3c4
 python <CLI_DIR>/tickets.py set 5 --add-tag <tag> --remove-tag <tag> --severity low
 python <CLI_DIR>/tickets.py set <PREFIX>0005 --body-file <SCRATCH>/body.md
 python <CLI_DIR>/tickets.py set <PREFIX>0005 --append-body-file <SCRATCH>/addition.md
+python <CLI_DIR>/tickets.py set <PREFIX>0005 --blocked-by <PREFIX>0002 --relates 7
+python <CLI_DIR>/tickets.py set <PREFIX>0005 --remove-blocked-by <PREFIX>0002
+python <CLI_DIR>/tickets.py comment <PREFIX>0005 --author pm --body-file <SCRATCH>/comment.md
 python <CLI_DIR>/tickets.py list --active --owner <area>
 python <CLI_DIR>/tickets.py list --tag <tag> --severity high,medium --text <word>
 python <CLI_DIR>/tickets.py show <PREFIX>0005
@@ -111,11 +119,29 @@ python <CLI_DIR>/tickets.py import <SCRATCH>/records.json --dry-run
   dangling link, bad value) and leaves the file untouched. Since it checks the changed ticket, it can repair one
   (a summary too long, a missing field). It refuses up front only a ticket it cannot work on (another id in the
   file, `tags` or a `links` entry not a list, `links` not an object): `ERROR <id> cannot be changed with set: ...`.
-- `show` prints an invalid ticket as far as it reads, then `WARNING <id> is invalid (...); run validate`.
-- `list` filters: `--status` (comma list), `--active` (open, in_progress, in_review, blocked), `--severity`,
+- **Typed links** (1.4.0): `new` and `set` take `--block`, `--blocked-by` and `--relates` (ids or bare numbers,
+  comma-separated, repeatable), and `set` also `--remove-block`, `--remove-blocked-by` and `--remove-relates`
+  (which also clears the id from the old `links.tickets`). A block is written on **both** tickets, and each other
+  ticket must exist and be usable: the command checks every ticket it will write first, and writes none if one
+  fails (`updated <id> (the other side of the blocks)` names the others). A link to the ticket itself is refused.
+  `list` adds `[blocked by <ids>]` and `[N comment(s)]` after a summary.
+- **Comments** (1.4.0) are CLI-only; the viewer stays read-only. `comment <id> --author <enum> --body-file <file|->`
+  appends `{author, at, body}` and bumps `updated`; an empty body is refused. A comment is never edited or
+  removed: correct one with a later comment.
+- **Mentions are derived, never stored.** A `<PREFIX>NNNN` in a body or a comment (outside inline code and fenced
+  code, and not part of a longer word) is a mention: **just write the id** in the text, there is nothing to run.
+  The viewer links it, and the ticket's detail shows "Mentions" and "Mentioned by" groups; `show` prints
+  `mentions:` and `mentioned by:` lines.
+- `show` prints an invalid ticket as far as it reads, then `WARNING <id> is invalid (...); run validate`. It prints
+  the typed links, the mentions and then the comments, newest first.
+- `list` filters: `--status` (comma list), `--active` (open, in_progress, in_review, user_review, verified, blocked), `--severity`,
   `--owner`, `--target`, `--tag` (all must match), `--text` (summary or body).
 - `validate` checks every file against the schema, file name = id, duplicate ids, tags held by the tag store,
-  the tag groups, ticket links that resolve, `updated` not before `created`. It exits 1 on any problem - run it
+  the tag groups, ticket links that resolve (typed ones too; none to the ticket itself), a block listed on both
+  tickets (`links.blocks names X, but X's links.blocked_by lacks Y: run tickets.py set ...`), no ticket both
+  blocking and blocked by the same one, a comment not dated before its ticket, `updated` not before `created`.
+  It prints `WARNING <id>: mentions <ids> in its body or comments, which is not in the store` (a warning, not a
+  failure) for a mentioned id with no ticket. It exits 1 on any problem - run it
   after editing tickets, and before a commit that touches `.claude/tickets/`. A tag whose entry in `tags.json` is
   invalid (a bad colour, say) is reported first as the `tags.json` problem, then on each ticket carrying it as
   `<file>: tag id N: its entry in tags.json is invalid (the tags.json problem for tag N says why)` or
@@ -135,8 +161,9 @@ python <CLI_DIR>/tickets.py import <SCRATCH>/records.json --dry-run
 ```
 
 Ids are given in order from `next_id` and never reused or renumbered. A name is unique, lowercase letters,
-digits and `_`, with at least one letter or `_`. A ticket stores ids; everyone reads and types names. Renaming a
-tag changes only the store.
+digits and `_`, with at least one letter or `_`. **A hyphen is not allowed in a tag name**: write `_` where an
+`owner_area` value has `-`, so the tag for `re-docs` is `re_docs` (the tools do not convert it for you). A ticket
+stores ids; everyone reads and types names. Renaming a tag changes only the store.
 
 **Tag groups**, in `config.json`, say how many tags of a set every ticket must carry. They are written with tag
 names. `min` defaults to 0 and `max` to `null` (any number):
@@ -162,14 +189,20 @@ python <CLI_DIR>/author.py rules                               the tag groups, a
 python <CLI_DIR>/author.py draft <the flags of tickets.py new>  the ticket new would write, or its problems
 python <CLI_DIR>/author.py draft --from-json <file, or - for stdin>
 python <CLI_DIR>/author.py new <the same input as draft>        writes it; prints created <id> - <summary>
+python <CLI_DIR>/author.py comment <id> --author pm --body-file <file, or - for stdin>
 ```
 
 - **File through `draft`, then `new`.** `draft` writes nothing. Field problems come first; the tags and the tag
   groups are checked once the fields pass, so a missing group, such as
   `tag group type: pick exactly 1 of bug, cleanup, docs (has none)`, may show only on the next `draft`.
 - **`--from-json`** takes one JSON object with the keys of an `import` record: `summary`, `severity`, `owner`,
-  `author`, and optionally `status`, `target`, `tags` (names), `body` and `links`. `new` sets `id`, `created` and
-  `updated`.
+  `author`, and optionally `status`, `target`, `tags` (names), `body`, `links` (`tickets`, `files`, `commits` and,
+  from 1.4.0, `blocks`, `blocked_by`, `relates_to`). `new` sets `id`, `created` and `updated`. `comments` is
+  refused: create the ticket, then add each comment with `comment`.
+- **Typed links and comments through `author.py`** (1.4.0): `draft` and `new` take `--block`, `--blocked-by` and
+  `--relates`; `new` writes the other side of each block on the ticket it names, which must exist, and prints
+  `updated <ids> (the other side of its blocks)`. `comment` does what `tickets.py comment` does and, with
+  `--json`, returns `id`, `comment` and `comments` (the count).
 - **Quote a colour:** unquoted, `#` starts a comment in the shell. After `tags rename`, a tag group in
   `config.json` that names the old name must be changed by hand; the command warns.
 - **`tags rename` waits for the conversion.** It refuses, writing nothing, while any ticket still carries the old
@@ -191,15 +224,17 @@ python <CLI_DIR>/author.py new <the same input as draft>        writes it; print
 ## 4. The viewer
 
 ```
-python <CLI_DIR>/serve.py              ensure it is running; prints the URLs
-python <CLI_DIR>/serve.py --local-only same, but bound to 127.0.0.1 (no LAN, no firewall prompt)
-python <CLI_DIR>/serve.py --stop       stop the recorded server
-python <CLI_DIR>/serve.py --foreground run in this console, Ctrl+C to stop
+python <CLI_DIR>/serve.py                   ensure it is running, bound to 127.0.0.1; prints the URLs
+python <CLI_DIR>/serve.py --all-interfaces  same, bound to 0.0.0.0: the LAN (a phone, another PC) can reach it
+python <CLI_DIR>/serve.py --stop            stop the recorded server
+python <CLI_DIR>/serve.py --foreground      run in this console, Ctrl+C to stop
 ```
 
-- **Port `<PORT>`**, from `viewer_port` in `config.json`. Say here what else on this PC it keeps clear of. The
-  default bind is `0.0.0.0` so the user's phone on the same network can open it; it prints
-  `http://127.0.0.1:<PORT>/` and the LAN address the PC is reached on.
+- **Port `<PORT>`**, from `viewer_port` in `config.json`. Say here what else on this PC it keeps clear of. **Since
+  1.4.0 the default bind is `127.0.0.1`**: only this PC reaches it, and no firewall prompt appears.
+  `--all-interfaces` is the opt-in for the user's phone or another machine on the network (a tool on the same PC, such as a master
+  site, reaches it over 127.0.0.1 and needs no flag); it prints `http://127.0.0.1:<PORT>/` and the LAN address the PC is reached on.
+  `--local-only`, the opt-out before 1.4.0, is still accepted and changes nothing.
 - **Every ticket viewer's port is unique on this machine.** 18000-19000 is the suggested range. If your machine has
   its own rule for viewer ports (for example a dashboard that only scans a range), that rule wins. A new port is
   not listening and not configured by another board on this machine; on the maintainer's machine, the Adopters table
@@ -213,14 +248,14 @@ python <CLI_DIR>/serve.py --foreground run in this console, Ctrl+C to stop
   (`viewer_service`), it prints the URLs and exits 0. Otherwise it starts itself **detached** (no console window,
   survives the calling shell), records `{pid, port, bind, script, started, service, cwd, created}` in `build/tickets/serve.pid`, waits
   for the health answer and exits 0. It refuses (exit 1) if something else holds the port. To change the binding
-  (LAN <-> local-only), `--stop` first. The log is `build/tickets/serve.log` (restarted past 512 KB).
+  (localhost <-> `--all-interfaces`), `--stop` first. The log is `build/tickets/serve.log` (restarted past 512 KB).
 - **`--stop` stops only the recorded PID**, and only after confirming it is this server - its `/api/health`
   reports that PID with our marker (from `config.json`, then the one recorded in `serve.pid`, for when the config
   is broken or its `viewer_service` changed while the viewer ran), or its command line names this `serve.py`
   (absolute, or relative to the recorded folder while the process's creation time still matches the record). It
   never stops anything by name; a stale pid file, or one whose PID a later process has taken, is cleared.
-- **First LAN start: Windows asks once to let python.exe through the firewall. Choose Private networks only.**
-  Never change firewall settings from a script or agent. Use `--local-only` for tests so no prompt appears.
+- **First `--all-interfaces` start: Windows asks once to let python.exe through the firewall. Choose Private networks only.**
+  Never change firewall settings from a script or agent. The default bind is localhost, so tests raise no prompt.
 - **Read-only.** GET only (everything else is 405). The whole site is a fixed route table: `/`, the page files,
   the three icons, `/lib/marked.min.js`, `/lib/purify.min.js` (served from `<CLI_DIR>/lib/`), `/api/tickets`
   (every ticket, the tag store keyed by id, its `tag_format`, the `tag_groups` and any `problems`, read fresh
@@ -235,10 +270,12 @@ python <CLI_DIR>/serve.py --foreground run in this console, Ctrl+C to stop
 - **The page**: Visual Studio 2022 look, Dark by default, Light from the top-bar toggle (remembered per browser
   under `theme_key`; `?theme=light|dark` forces one for a visit without storing it). A filter bar (status,
   severity, tag, owner, patch, sort, search), a count per status (tap to filter), a sortable list (key, summary +
-  tag chips, severity, status, owner, updated) and the selected ticket's detail: metadata, links (ticket links
-  open that ticket; files and commits are text) and the body rendered by marked and sanitised by DOMPurify.
-  `#<PREFIX>0005` in the URL selects a ticket, so a link can point at one; a bare `<PREFIX>NNNN` in a body becomes
-  a link. A peer's id stays text: it is not on this board.
+  tag chips, severity, status, owner, updated) and the selected ticket's detail: the subject, the tags, the body
+  rendered by marked and sanitised by DOMPurify, the linked tickets (blocked by, blocks, relates to, plus
+  "Mentions" and "Mentioned by"; each opens that ticket; files and commits are text), then the comments, newest
+  first, 10 at a time with a "load more" button. `#<PREFIX>0005` in the URL selects a ticket, so a link can point
+  at one; a bare `<PREFIX>NNNN` in a body or comment becomes a link. A peer's id stays text: it is not on this
+  board.
 - **On a phone** (under 900 px): the list is full screen, a ticket opens as its own view with a back control, and
   the phone's back gesture works (the hash is the history). Filters sit in a bottom sheet. Nothing scrolls
   sideways at 360 px - a wide table or code block scrolls inside its own box.
@@ -256,12 +293,16 @@ python <CLI_DIR>/serve.py --foreground run in this console, Ctrl+C to stop
   than guessing.
 - **Status tracks the work, live** (user rule, 2026-09-30: "make sure we are changing the status of tickets so I
   can see what is actively being worked on"). Set a ticket `in_progress` when an agent is dispatched on it (or the
-  PM starts it), `in_review` when the work is done and handed to a reviewer (or the user) for review, back to
-  `in_progress` if the review sends it back, `blocked` with a body line saying on what, and back to `open` if the
-  work is dropped. Work with no ticket gets one when it starts, so the board always shows what is active.
+  PM starts it), `in_review` when the work is done and handed to a reviewer for review, back to `in_progress` if
+  the review sends it back, `verified` once the review has passed and the checks are green (only landing it is
+  left: the commit, merge or delivery), `blocked` with a body line saying on what, and back to `open` if the work
+  is dropped. Work with no ticket gets one when it starts, so the board always shows what is active.
+- **`user_review` hands a ticket to the user** (1.4.0): set it, from any active status, when the ticket needs the
+  user to look at something or decide, with a body line or a comment saying what. The viewer highlights it, so
+  the user finds what waits on them. Once the user has answered, move it on (`in_progress`, `verified`, ...).
 - **Close with evidence**: `set <id> --status done --link-commit <hash>`, and add a line to the body saying what
-  verified it (the check and its result). Reviewed work is `done` only after the review passes. `wont_do` needs a
-  line saying why.
+  verified it (the check and its result). Reviewed work is `done` only after the review passes, usually from
+  `verified`, and `done` always needs the commit link. `wont_do` needs a line saying why.
 - **Who writes.** The PM (the main session) files and updates tickets and owns severity and `target_patch` calls
   on tickets the user filed, and anything the user must decide. A dispatched agent files and updates tickets in
   its own area, or for the work it was given, and names every id it touched in its report. A reviewer edits
@@ -352,6 +393,7 @@ and the running viewer. Nobody else edits them.
 ## 7. What is not built
 
 - No editing from the page - it is view-only.
-- No comments, assignees beyond `owner_area`, or history beyond `git log` of the file.
-- No authentication: anyone on the LAN who can reach port `<PORT>` can read the tickets. Use `--local-only` on an
-  untrusted network.
+- No editing of comments, no commenting from the page (comments are written by the CLI), no assignees beyond
+  `owner_area`, and no history beyond `git log` of the file.
+- No authentication: anyone who can reach port `<PORT>` can read the tickets. The default bind is localhost; do
+  not use `--all-interfaces` on an untrusted network.

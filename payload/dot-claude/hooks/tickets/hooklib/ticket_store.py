@@ -3,7 +3,7 @@ which tickets are open. The id prefix comes from .claude/tickets/config.json (`i
 `<LETTERS>-NNNN.json` file counts; the number has 4 to 9 digits (more only for a longer first_ticket_number), as the CLI reads it (max_digits). Never writes; a file that does not parse (malformed, truncated past
 TICKET_READ_MAX, or nested deep enough to raise RecursionError) is skipped, and the others still count.
 
-	active_from(root, session) -> [ticket id, ...]   active tickets (in_progress or in_review) whose body
+	active_from(root, session) -> [ticket id, ...]   active tickets (in_progress, in_review or verified) whose body
 													carries the provenance line "Requested by <session> ..."
 													(the tickets skill's provenance format)"""
 import os
@@ -21,8 +21,9 @@ MAX_DIGITS = 9
 ANY_ID_RE = re.compile(r"^[A-Z][A-Z0-9]*-[0-9]{4,%d}\.json\Z" % MAX_DIGITS)
 TICKET_READ_MAX = 512 * 1024
 # The statuses in which a requested change is being worked on: in_progress, then in_review (fixes from the
-# review happen there too).
-ACTIVE_STATUSES = ("in_progress", "in_review")
+# review happen there too), then verified (1.4.0: reviewed and green; landing it, the commit, happens there).
+# user_review is not one: the work is paused, waiting on the user.
+ACTIVE_STATUSES = ("in_progress", "in_review", "verified")
 
 
 def max_digits(cfg):

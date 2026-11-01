@@ -19,7 +19,7 @@ python <CLI_DIR>/tickets.py import <file.json>
 | `severity` | yes | `critical`, `high`, `medium` or `low` | - |
 | `owner` | yes | One of your `AREAS`. `owner_area` is accepted instead | - |
 | `author` | yes | One of your `AUTHORS` | - |
-| `status` | no | `open`, `in_progress`, `in_review`, `blocked`, `done` or `wont_do` | `open` |
+| `status` | no | `open`, `in_progress`, `in_review`, `user_review`, `verified`, `blocked`, `done` or `wont_do` | `open` |
 | `target` | no | One line, 1-40 characters. `target_patch` is accepted instead | `next` |
 | `tags` | no | An array of tags from `tags.json`, by name (or by id). They are written as ids, and the tag groups apply | `[]` |
 | `body` | no | A string of markdown. CRLF line ends become LF | `""` |

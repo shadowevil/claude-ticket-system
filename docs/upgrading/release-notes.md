@@ -4,6 +4,19 @@
 
 *Part of the upgrade guide, `../UPGRADING.md`: read its opening first, for `SRC`, `REPO`, `SCRATCH` and `CLI_DIR`. A bare "sect. N" here is that guide's sect. N, and its index names the file. `ADOPTING.md` is `../ADOPTING.md`, an index too.*
 
+## 1.4.0 (2026-10-31)
+
+Typed ticket links, comments, the `user_review` and `verified` statuses, a new detail view, a localhost viewer and `page_title` (`CHANGELOG.md` [1.4.0]). The schema and `config.json` structures change, so it's a minor, but no data moves: every new field is optional. From 1.3.0 or 1.3.1, follow sect. 8; from a 1.2.x copy, follow sect. 7 with 1.4.0 in place of 1.3.0 (its step 2), then sect. 8.
+- **The viewer binds 127.0.0.1 by default** (B57). Anything on the LAN that reached your viewer (a phone, another PC) needs `serve.py --all-interfaces` after the restart; the maintainer's master site, on the same PC, reaches it over 127.0.0.1 and needs nothing. `--local-only` is still accepted and changes nothing. A running viewer keeps its old binding until `--stop`.
+- **The tool folder:** six files changed since 1.3.1: `tickets.py`, `author.py`, `serve.py`, `app.js`, `index.html` and `style.css`. Copy those six, or everything in `PAYLOAD/src/tools/tickets/` except `icons/`. Never copy `icons/`, and don't re-bake.
+- **The schema's `links` node and a new `comments` node** (B58) must be merged into your `ticket.schema.json`, keeping your enums (sect. 8 step 4). Until then a ticket with a typed link or a comment fails the schema; unchanged tickets still validate.
+- **Two new statuses, `user_review` and `verified`** (B59, B60): add both to your schema's `status` enum in the same merge (sect. 8 step 4). Both count as active; `verified` sits between `in_review` and `done`, and `user_review` marks a ticket waiting on the user, highlighted in the viewer. Until the merge the CLI does not offer them; existing tickets validate unchanged.
+- **`config.json`** may carry `page_title` (B57), used verbatim; the example `config.json` is unchanged and your file needs no edit.
+- **The skill and the rules doc changed.** Take the skill whole, put your Settings rows back, set the version row to `1.4.0` and have it reviewed before install. The rules doc's sect. 1-5 and 7 gain the new statuses and their rules, the typed links, comments, mentions, the `validate` checks, the `page_title` key, the hyphen sentence and the viewer binding (sect. 8 step 5).
+- **`validate` may now print a `WARNING`** for a body or comment that names an id with no ticket (B58); the exit code stays 0.
+- **Tag names:** unchanged (lowercase letters, digits, `_`); a hyphen is not allowed, so `re-docs` is the tag `re_docs` (B57).
+- **The hooks:** `hooklib/ticket_store.py` changed: T2 now also ties a write to an active Ticket Master ticket in `verified` (not `user_review`). Its self-test cases (`rules/write/t2_ticket_system_fork.py`) and the T2 text in `RULES.md` changed with it. With the hooks installed, copy these three in by sect. 6, "Upgrading installed hooks" (staged self-test with `--scratch`, review, install, self-test again).
+
 ## 1.3.1-hotfix (2026-10-21)
 
 A hotfix to the 1.3.1 public repo's `README.md` only: its prompt is one fenced `markdown` block, easy to copy (`CHANGELOG.md` [1.3.1-hotfix]). The version stays 1.3.1 and no file of the release payload changed, so adopters do nothing.

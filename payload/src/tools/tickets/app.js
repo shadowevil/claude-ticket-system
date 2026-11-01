@@ -4,18 +4,29 @@
 	"use strict";
 
 	// A status missing here (a project's own schema may add one) still shows, as a neutral pill.
-	var status_order = ["open", "in_progress", "in_review", "blocked", "done", "wont_do"];
+	// user_review (waits on the user) and verified (reviewed and green, only landing it left) are 1.4.0 (B59, B60).
+	var status_order = ["open", "in_progress", "in_review", "user_review", "verified", "blocked", "done", "wont_do"];
 	// "open" is stored; the user asked to see it as TODO (2026-09-30).
-	var status_labels = { open: "TODO", in_progress: "In progress", in_review: "In review", blocked: "Blocked", done: "Done", wont_do: "Won't do" };
+	var status_labels = { open: "TODO", in_progress: "In progress", in_review: "In review", user_review: "User review", verified: "Verified", blocked: "Blocked", done: "Done", wont_do: "Won't do" };
 	var severity_order = ["critical", "high", "medium", "low"];
 	var severity_labels = { critical: "Critical", high: "High", medium: "Medium", low: "Low" };
-	var active_statuses = ["open", "in_progress", "in_review", "blocked"];
+	// Every status but done and wont_do (tickets.py's active_statuses).
+	var active_statuses = ["open", "in_progress", "in_review", "user_review", "verified", "blocked"];
 	var page_data = document.documentElement.dataset;
-	var page_title = (page_data.storeName || "Project") + " Tickets";
+	// config.json's page_title, used as written (serve.py fills it in); without it, or empty, "<store_name> Tickets".
+	var page_title = page_data.pageTitle || (page_data.storeName || "Project") + " Tickets";
 	var theme_key = page_data.themeKey || "tickets-theme";
 	// config.json's id_prefix, taken literally; any capitals-and-hyphen prefix when the page lacks it.
 	var id_prefix_source = /^[A-Z][A-Z0-9]*-$/.test(page_data.idPrefix || "") ? escape_regex(page_data.idPrefix) : "[A-Z][A-Z0-9]*-";
-	var ticket_id_pattern = new RegExp("\\b" + id_prefix_source + "\\d{4,}\\b", "g");
+	// config.json's longest ticket number (tickets.py's id_max_digits, which serve.py fills in); 9 when the page lacks it.
+	var id_max_digits = /^[1-9][0-9]?$/.test(page_data.idMaxDigits || "") ? page_data.idMaxDigits : "9";
+	// A mention of a ticket in text, as tickets.py's mention_id_pattern: no word character or hyphen before the id,
+	// 4 to id_max_digits digits, and no word character after (Python's \w is Unicode: letters, digits, _).
+	var ticket_id_pattern = mention_pattern();
+	// Code that mentions are not taken from: fenced blocks and inline code spans (as tickets.py's code_pattern).
+	var code_pattern = /```[\s\S]*?(?:```|$(?![\s\S]))|~~~[\s\S]*?(?:~~~|$(?![\s\S]))|`[^`\n]*`/g;
+	// The detail view shows this many comments, then this many more per click on "load more".
+	var comment_page_size = 10;
 	var hash_id_pattern = new RegExp("^#(" + id_prefix_source + "\\d{4,})$");
 	// Matches the phone breakpoint in style.css: below it, list and detail are separate views.
 	var single_view_query = window.matchMedia("(max-width: 899px)");
@@ -46,6 +57,9 @@
 		sort_key: "severity",
 		sort_descending: false,
 		opened_from_list: false,
+		// How many comments the detail view shows, for which ticket: a reload keeps it, another ticket starts again.
+		comment_limit: 10,
+		comment_ticket: null,
 		filters: { status: "active", severity: "", tag: "", owner: "", target: "", text: "" }
 	};
 
@@ -59,11 +73,23 @@
 		medium: "M2 5h12v1.6H2zM2 9.4h12V11H2z",
 		low: "M8 12 2 6l1.1-1.1L8 9.8l4.9-4.9L14 6z",
 		sort_up: "M8 4 3 10h10z",
-		sort_down: "M8 12 3 6h10z"
+		sort_down: "M8 12 3 6h10z",
+		more: "M8 12 2 6l1.1-1.1L8 9.8l4.9-4.9L14 6z"
 	};
 
 	function escape_regex(text) {
 		return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+	}
+
+	// ticket_id_pattern: no capture group, since text.replace's callback takes (match, offset). A browser without
+	// lookbehind (Safari before 16.4) gets the older word-boundary form rather than no page.
+	function mention_pattern() {
+		var id = id_prefix_source + "[0-9]{4," + id_max_digits + "}";
+		try {
+			return new RegExp("(?<![\\p{L}\\p{N}_-])" + id + "(?![\\p{L}\\p{N}_])", "gu");
+		} catch (error) {
+			return new RegExp("\\b" + id + "(?![0-9A-Za-z_])", "g");
+		}
 	}
 
 	function $(id) {
@@ -452,7 +478,8 @@
 			return [status, status_labels[status], counts[status] || 0];
 		}));
 		entries.forEach(function (entry) {
-			var button = el("button", "count-button");
+			// The user scans for what waits on them: user_review's count stands out while it is above 0.
+			var button = el("button", "count-button" + (entry[0] === "user_review" && entry[2] > 0 ? " count-attention" : ""));
 			button.type = "button";
 			button.setAttribute("aria-pressed", state.filters.status === entry[0] ? "true" : "false");
 			append(button, [el("span", null, entry[1]), el("b", null, String(entry[2]))]);
@@ -575,8 +602,17 @@
 			var last = 0;
 			text.replace(ticket_id_pattern, function (match, offset) {
 				fragment.appendChild(document.createTextNode(text.slice(last, offset)));
-				var link = el("a", null, match);
-				link.href = "#" + match;
+				// Text and attributes only: the id matched the pattern, the summary comes from a file.
+				var other = find_ticket(match);
+				var link;
+				if (other) {
+					link = el("a", "ticket-ref", match);
+					link.href = "#" + match;
+					link.title = String(other.summary || "");
+				} else {
+					link = el("span", "ticket-ref ticket-missing", match);
+					link.title = "Not found in this store";
+				}
 				fragment.appendChild(link);
 				last = offset + match.length;
 				return match;
@@ -590,34 +626,131 @@
 		return append(el("div", "meta-item"), [el("span", "meta-label", label), append(el("div", "meta-value"), [value_node])]);
 	}
 
-	function links_block(ticket) {
-		var links = ticket.links || {};
-		var groups = [];
-		if ((links.tickets || []).length) {
-			var list = el("ul");
-			links.tickets.forEach(function (id) {
-				var item = el("li");
-				var link = el("a", "mono", id);
-				link.href = "#" + id;
-				item.appendChild(link);
-				var other = find_ticket(id);
-				if (other) {
-					item.appendChild(document.createTextNode(" - " + other.summary));
+	/* A list from a ticket file: its strings only, anything else (a hand-edited file) dropped. */
+	function string_list(value) {
+		return Array.isArray(value) ? value.filter(function (item) { return typeof item === "string"; }) : [];
+	}
+
+	/* The ticket ids a ticket's body and comments mention, outside code, once each, without its own (as tickets.py's
+	   mentioned_ids). Derived from the text, never stored. */
+	function mentioned_ids(ticket) {
+		var texts = [ticket.body].concat(ticket_comments(ticket).map(function (comment) { return comment.body; }));
+		var found = [];
+		texts.forEach(function (text) {
+			if (typeof text !== "string") {
+				return;
+			}
+			(text.replace(code_pattern, " ").match(ticket_id_pattern) || []).forEach(function (id) {
+				if (id !== ticket.id && found.indexOf(id) < 0) {
+					found.push(id);
 				}
-				list.appendChild(item);
 			});
-			groups.push(append(el("div", "links-group"), [el("span", "meta-label", "Tickets"), list]));
+		});
+		return found;
+	}
+
+	function mentioned_by(ticket) {
+		return state.tickets.filter(function (other) {
+			return other.id !== ticket.id && mentioned_ids(other).indexOf(ticket.id) >= 0;
+		}).map(function (other) { return other.id; });
+	}
+
+	/* One linked ticket: its id, a link that opens it, and its summary when the store has it. */
+	function ticket_link_item(id) {
+		var item = el("li");
+		var other = find_ticket(id);
+		if (other) {
+			var link = el("a", "ticket-link", null);
+			link.href = "#" + id;
+			append(link, [el("span", "mono", id), el("span", "ticket-link-summary", " - " + String(other.summary || ""))]);
+			item.appendChild(link);
+		} else {
+			item.appendChild(el("span", "mono ticket-missing", id));
+			item.appendChild(el("span", "muted", " - not found in this store"));
 		}
+		return item;
+	}
+
+	/* The links section: the typed ticket links, the untyped links.tickets (read as relates-to), the mentions both ways,
+	   then files and commits. Each ticket entry opens that ticket. */
+	function links_block(ticket) {
+		var links = ticket.links && typeof ticket.links === "object" ? ticket.links : {};
+		var groups = [];
+		[
+			["Blocked by", string_list(links.blocked_by)],
+			["Blocks", string_list(links.blocks)],
+			["Relates to", string_list(links.relates_to)],
+			["Linked", string_list(links.tickets)],
+			["Mentions", mentioned_ids(ticket)],
+			["Mentioned by", mentioned_by(ticket)]
+		].forEach(function (group) {
+			if (group[1].length) {
+				groups.push(append(el("div", "links-group"), [el("span", "meta-label", group[0]),
+					append(el("ul", "ticket-links"), group[1].map(ticket_link_item))]));
+			}
+		});
 		[["files", "Files"], ["commits", "Commits"]].forEach(function (kind) {
-			if ((links[kind[0]] || []).length) {
+			var values = string_list(links[kind[0]]);
+			if (values.length) {
 				var list = el("ul");
-				links[kind[0]].forEach(function (value) {
+				values.forEach(function (value) {
 					list.appendChild(append(el("li"), [el("code", null, value)]));
 				});
 				groups.push(append(el("div", "links-group"), [el("span", "meta-label", kind[1]), list]));
 			}
 		});
-		return groups.length ? append(el("div", "links"), groups) : null;
+		return groups.length ? append(el("section", "links"), [el("h2", "section-title", "Links")].concat(groups)) : null;
+	}
+
+	/* The comments a ticket file holds that read as comments, newest first (by time; the file's order breaks ties). */
+	function ticket_comments(ticket) {
+		var comments = Array.isArray(ticket.comments) ? ticket.comments : [];
+		return comments.map(function (comment, index) { return { comment: comment, index: index }; })
+			.filter(function (entry) {
+				return entry.comment && typeof entry.comment === "object" && typeof entry.comment.body === "string";
+			})
+			.sort(function (a, b) {
+				var at_a = String(a.comment.at || "");
+				var at_b = String(b.comment.at || "");
+				return at_a < at_b ? 1 : at_a > at_b ? -1 : b.index - a.index;
+			})
+			.map(function (entry) { return entry.comment; });
+	}
+
+	function comment_node(comment) {
+		var when = el("span", "comment-at muted", String(comment.at || "").replace("T", " ").replace("Z", " UTC"));
+		when.title = String(comment.at || "");
+		var head = append(el("div", "comment-head"), [el("span", "comment-author", String(comment.author || "?")), when]);
+		return append(el("li", "comment"), [head, render_markdown(comment.body)]);
+	}
+
+	/* The comments section, newest first: the first comment_limit shown, the rest not rendered until "load more" asks
+	   for the next comment_page_size. */
+	function comments_block(ticket) {
+		var comments = ticket_comments(ticket);
+		if (!comments.length) {
+			return null;
+		}
+		var list = el("ol", "comments");
+		var more = el("button", "load-more");
+		more.type = "button";
+		var shown = 0;
+		function show_up_to(limit) {
+			for (; shown < Math.min(limit, comments.length); shown++) {
+				list.appendChild(comment_node(comments[shown]));
+			}
+			var hidden = comments.length - shown;
+			more.hidden = hidden <= 0;
+			more.textContent = "";
+			append(more, [svg_icon("more"), el("span", null, "Load " + Math.min(comment_page_size, hidden) + " more (" + hidden + " hidden)")]);
+		}
+		more.addEventListener("click", function () {
+			state.comment_limit = shown + comment_page_size;
+			show_up_to(state.comment_limit);
+		});
+		show_up_to(state.comment_limit);
+		return append(el("section", "comments-section"), [el("h2", "section-title", "Comments (" + comments.length + ")"),
+			list, more]);
 	}
 
 	function detail_bar(ticket_id) {
@@ -641,8 +774,12 @@
 			return;
 		}
 		pane.appendChild(detail_bar(ticket.id));
+		if (state.comment_ticket !== ticket.id) {
+			state.comment_ticket = ticket.id;
+			state.comment_limit = comment_page_size;
+		}
 		var detail = el("article", "detail");
-		var tags = append(el("span", "tags"), ticket_tags(ticket).map(tag_chip));
+		var tags = ticket_tags(ticket).length ? append(el("div", "tags detail-tags"), ticket_tags(ticket).map(tag_chip)) : null;
 		var created = el("span", null, short_date(ticket.created));
 		created.title = ticket.created;
 		var updated = el("span", null, short_date(ticket.updated));
@@ -654,11 +791,13 @@
 			meta_item("Target patch", el("span", null, ticket.target_patch)),
 			meta_item("Author", el("span", null, ticket.author)),
 			meta_item("Created", created),
-			meta_item("Updated", updated),
-			ticket_tags(ticket).length ? meta_item("Tags", tags) : null
+			meta_item("Updated", updated)
 		]);
-		append(detail, [el("div", "detail-key", ticket.id), el("h1", null, ticket.summary), meta,
-			links_block(ticket), render_markdown(ticket.body)]);
+		// The order the user asked for (B58): the subject, its tags, the body, the links, then the comments. The fields
+		// (status, severity, ...) sit between the tags and the body.
+		var body = append(el("section", "body-section"), [el("h2", "section-title", "Description"), render_markdown(ticket.body)]);
+		append(detail, [el("div", "detail-key", ticket.id), el("h1", null, ticket.summary), tags, meta, body,
+			links_block(ticket), comments_block(ticket)]);
 		pane.appendChild(detail);
 		pane.scrollTop = 0;
 		document.title = ticket.id + " - " + page_title;

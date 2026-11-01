@@ -304,6 +304,13 @@ select {
 	font-weight: 600;
 }
 
+/* user_review with tickets waiting: the user looks for these first. */
+.count-button.count-attention:not([aria-pressed="true"]) {
+	border-color: #e8a317;
+	background: color-mix(in srgb, #e8a317 22%, transparent);
+	color: var(--text-strong);
+}
+
 /* --- ticket list: a table when there is room, cards when there is not ---------------------- */
 
 .list {
@@ -511,12 +518,23 @@ select {
 .st-open { --pill: #9d9d9d; }
 .st-in_progress { --pill: #007acc; }
 .st-in_review { --pill: #b180d7; }
+/* user_review waits on the user, who scans for it: a solid amber pill, the only filled one. */
+.st-user_review {
+	--pill: #e8a317;
+	background: var(--pill);
+	color: #1e1e1e;
+}
+.st-verified { --pill: #4ec9b0; }
 .st-blocked { --pill: #f14c4c; }
 .st-done { --pill: #89d185; }
 .st-wont_do { --pill: #808080; }
 
 .row.selected .pill {
 	color: var(--selected-text);
+}
+
+.row.selected .pill.st-user_review {
+	color: #1e1e1e;
 }
 
 .empty {
@@ -634,6 +652,104 @@ select {
 
 .links code {
 	font-size: 12px;
+}
+
+/* The detail's sections: description, links, comments (B58). */
+.detail-tags {
+	margin: -4px 0 12px;
+}
+
+.section-title {
+	margin: 0 0 6px;
+	font-size: 11px;
+	font-weight: 600;
+	color: var(--muted);
+	text-transform: uppercase;
+	letter-spacing: 0.04em;
+}
+
+.body-section {
+	margin-bottom: 14px;
+}
+
+.ticket-links {
+	list-style: none;
+	padding-left: 0 !important;
+}
+
+.ticket-link {
+	text-decoration: none;
+}
+
+.ticket-link:hover .ticket-link-summary {
+	text-decoration: underline;
+}
+
+.ticket-link-summary {
+	color: var(--text);
+}
+
+.ticket-missing {
+	color: var(--muted);
+	text-decoration: line-through dotted;
+	cursor: help;
+}
+
+.comments-section {
+	margin-top: 14px;
+}
+
+.comments {
+	list-style: none;
+	margin: 0;
+	padding: 0;
+}
+
+.comment {
+	padding: 8px 12px;
+	margin-bottom: 8px;
+	background: var(--panel);
+	border: 1px solid var(--border);
+	border-radius: 2px;
+}
+
+.comment-head {
+	display: flex;
+	gap: 10px;
+	align-items: baseline;
+	font-size: 12px;
+	margin-bottom: 4px;
+}
+
+.comment-author {
+	font-weight: 600;
+	color: var(--text-strong);
+}
+
+.load-more {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	padding: 5px 12px;
+	font: inherit;
+	color: var(--text);
+	background: var(--panel);
+	border: 1px solid var(--border);
+	border-radius: 2px;
+	cursor: pointer;
+}
+
+.load-more:hover {
+	border-color: var(--accent);
+}
+
+.load-more svg {
+	width: 14px;
+	height: 14px;
+}
+
+.load-more[hidden] {
+	display: none;
 }
 
 .placeholder {

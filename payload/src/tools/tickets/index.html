@@ -1,10 +1,10 @@
 <!doctype html>
 <!-- A template: serve.py fills each {{name}} from .claude/tickets/config.json, HTML-escaped. -->
-<html lang="en" data-theme="dark" data-store-name="{{store_name}}" data-id-prefix="{{id_prefix}}" data-theme-key="{{theme_key}}">
+<html lang="en" data-theme="dark" data-store-name="{{store_name}}" data-id-prefix="{{id_prefix}}" data-id-max-digits="{{id_max_digits}}"data-theme-key="{{theme_key}}" data-page-title="{{page_title}}">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>{{store_name}} Tickets</title>
+<title>{{page_title}}</title>
 <meta name="description" content="Read-only view of the {{store_name}} project tickets (.claude/tickets).">
 <meta name="theme-color" content="#2d2d30">
 <meta name="color-scheme" content="dark light">
@@ -21,7 +21,7 @@
 <header class="topbar">
 	<div class="brand">
 		<img class="brand-icon" src="/icons/icon-192.png" alt="">
-		<span class="brand-name">{{store_name}} Tickets</span>
+		<span class="brand-name">{{page_title}}</span>
 	</div>
 	<div class="topbar-actions">
 		<button type="button" class="icon-button" id="refresh-button" title="Reload tickets" aria-label="Reload tickets"></button>

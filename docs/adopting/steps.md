@@ -30,17 +30,17 @@ It exits 0 either way; read the word. On Windows, `Get-NetTCPConnection -State L
 
 **From a clone of the GitHub repo:** skip the export. The clone is the release: `PAYLOAD` is `<SRC>/payload/`. (The public repo tags each release from 1.3.1 on, so the export below also works in a clone for 1.3.1 and later; you don't need it.)
 
-**Check:** `<SRC>/VERSION` reads `1.3.1`, and `git -C <SRC> status --short` prints nothing, so you install the release as published.
+**Check:** `<SRC>/VERSION` reads `1.4.0`, and `git -C <SRC> status --short` prints nothing, so you install the release as published.
 
 **On the maintainer's machine,** SRC is the maintainer's source folder. Export the release from it into your scratch:
 
 ```bash
-python <SRC>/tools/release.py export 1.3.1 <SCRATCH>/ticket-system-1.3.1
+python <SRC>/tools/release.py export 1.4.0 <SCRATCH>/ticket-system-1.4.0
 ```
 
-The export reads the release tag, `tickets-v1.3.1`, so it works only once that tag exists; before then it stops with `ERROR cannot read tickets-v1.3.1: ...`. (The maintainer's pre-release test exports a branch with `--ref <branch>`; an adopter never does.) Everything below copies from `<SCRATCH>/ticket-system-1.3.1/payload/` (call it `PAYLOAD`), never from SRC's working tree, which may be mid-change.
+The export reads the release tag, `tickets-v1.4.0`, so it works only once that tag exists; before then it stops with `ERROR cannot read tickets-v1.4.0: ...`. (The maintainer's pre-release test exports a branch with `--ref <branch>`; an adopter never does.) Everything below copies from `<SCRATCH>/ticket-system-1.4.0/payload/` (call it `PAYLOAD`), never from SRC's working tree, which may be mid-change.
 
-**Check:** the command prints `exported tickets-v1.3.1 to ...`, and `PAYLOAD/../VERSION` reads `1.3.1`.
+**Check:** the command prints `exported tickets-v1.4.0 to ...`, and `PAYLOAD/../VERSION` reads `1.4.0`.
 
 ## 3. Copy the files
 
@@ -81,6 +81,7 @@ Add an optional key only when its default doesn't suit you:
 |---|---|---|
 | `first_ticket_number` | The first id's number | `1` |
 | `short_name` | The home-screen name (manifest `short_name`, `apple-mobile-web-app-title`) | `store_name` |
+| `page_title` | From 1.4.0: the page title and heading, any string, used as written. Without it, or with an empty string, the title is `store_name` + ` Tickets`, so a `store_name` of `DotR` gives `DotR Tickets`; set this to drop or change the suffix | `store_name` + ` Tickets` |
 | `viewer_service` | The `/api/health` marker | from `store_name` (step 1) |
 | `theme_key` | The browser storage key for the page's theme | `viewer_service` + `-theme` |
 | `server_version` | The HTTP `Server` header: visible ASCII, no spaces | `viewer_service` |
@@ -136,7 +137,7 @@ The released `.claude/tickets/tags.json` is an example tag store; adapt it to yo
 ```
 
 - An id is a positive whole number, below `next_id`. Ids are given in order, never reused and never renumbered.
-- A name is unique: lowercase letters, digits and `_`, with at least one letter or `_`. An all-digit name would read as an id.
+- A name is unique: lowercase letters, digits and `_`, with at least one letter or `_`. An all-digit name would read as an id. A hyphen is not allowed: where an `owner_area` value has `-` (`re-docs`), the tag is written with `_` (`re_docs`).
 - A colour is `#rrggbb`, readable on both the dark and light themes.
 
 Change the store with `author.py`. It checks the store first and writes it whole, holding `.claude/tickets/tags.json.lock` while it works, so two writers take turns. A writer that waits 30 s refuses with an `ERROR` naming the lock file. If no `tickets.py` or `author.py` is running, one was killed while it held the lock: delete the file. Nothing deletes a lock automatically.
@@ -205,7 +206,7 @@ Then read the sect. 5a table: it lists your peers, or says "none".
 
    | Row | Your value |
    |---|---|
-   | Ticket system version | `1.3.1`, as shipped |
+   | Ticket system version | `1.4.0`, as shipped |
    | CLI | `python <CLI_DIR>/tickets.py` |
    | Store | `.claude/tickets/` and the note on what each file holds, as shipped |
    | Store, absolute (for replies to a peer) | `<REPO>\.claude\tickets\`, the absolute path |
@@ -261,7 +262,7 @@ python <CLI_DIR>/tickets.py set <FIRST> --status in_review
 python <CLI_DIR>/tickets.py validate
 python <CLI_DIR>/tickets.py list --active
 python <CLI_DIR>/author.py tags
-python <CLI_DIR>/serve.py --local-only
+python <CLI_DIR>/serve.py
 curl -s http://127.0.0.1:<PORT>/api/health
 curl -s http://127.0.0.1:<PORT>/api/tickets
 curl -s http://127.0.0.1:<PORT>/ | grep "<title>"
@@ -274,10 +275,10 @@ python <CLI_DIR>/serve.py --stop
 - **Second `validate`:** `OK: 1 tickets ...`.
 - **`list --active`:** shows the ticket as `in_review`, then `1 of 1 tickets`.
 - **`author.py tags`:** shows `tooling` with `1` in the tickets column.
-- **`serve.py --local-only`:** prints `started (pid N, bound to 127.0.0.1)`.
+- **`serve.py`:** prints `started (pid N, bound to 127.0.0.1)`. From 1.4.0 the viewer binds localhost by default, so no Windows firewall prompt appears. Add `--all-interfaces` only where the LAN must reach it (a phone, another PC); a master site on the same PC needs no flag; that start may prompt, and you never change firewall settings from a script or agent. (`--local-only` is still accepted and changes nothing.)
 - **`/api/health`:** returns `"service": "<MARKER>"`.
 - **`/api/tickets`:** returns your one ticket, whose `tags` holds `tooling`'s id. `tags` is the store keyed by id, `tag_format` is `2`, and `problems` is empty.
-- **The page title:** `<title><NAME> Tickets</title>`.
+- **The page title:** `<title><NAME> Tickets</title>`, or your `page_title` as written if you set one.
 - **`--stop`:** prints `stopped the ticket viewer (pid N)`.
 - **The page:** start it again and open `http://127.0.0.1:<PORT>/`. It shows `<NAME> Tickets`, your icon and your ticket with an "In review" pill. A `#<PREFIX>NNNN` URL selects the ticket.
 
@@ -293,7 +294,7 @@ Then start the viewer for the user as a session background task: `python <CLI_DI
 
 **On the maintainer's machine,** send the `Ticket Master` session one message with:
 - your project name, `PREFIX`, `PORT` and `CLI_DIR`. Ticket Master runs `release.py identify` on your repo, which finds the tool through `tool_dir` or the two default folders, so it needs no `--cli-dir` from you;
-- the version you installed (`1.3.1`), and whether you installed the hooks;
+- the version you installed (`1.4.0`), and whether you installed the hooks;
 - the absolute path of your smoke-test ticket's JSON.
 
 Ticket Master adds you to the adopter table and announces future releases to you.

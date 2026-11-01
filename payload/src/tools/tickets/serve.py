@@ -1,7 +1,9 @@
 """Ticket viewer service: serves the read-only ticket site from the repo.
 
-    python <CLI_DIR>/serve.py               ensure it is running (idempotent), print the URLs
-    python <CLI_DIR>/serve.py --local-only  same, bound to 127.0.0.1 only (no firewall prompt)
+    python <CLI_DIR>/serve.py               ensure it is running (idempotent), bound to 127.0.0.1, print the URLs
+    python <CLI_DIR>/serve.py --all-interfaces  same, bound to 0.0.0.0: the LAN (a phone) can reach it;
+                                            Windows may show a firewall prompt
+    (--local-only, the opt-out before 1.4.0, is still accepted and changes nothing: localhost is the default)
     python <CLI_DIR>/serve.py --stop        stop the recorded server (its PID only)
     python <CLI_DIR>/serve.py --foreground  run in this console (debugging)
 
@@ -165,7 +167,13 @@ def check_settings():
 	server_header = text_setting("server_version")
 	if not header_token_pattern.fullmatch(server_header):
 		fail_config("server_version must be visible ASCII without spaces (it is the HTTP Server header)")
-	page_values.update({"store_name": store_name, "short_name": short_name, "theme_key": theme_key})
+	page_title = config.get("page_title", "")
+	if not isinstance(page_title, str):
+		fail_config("page_title must be a string")
+	# Absent or empty, the title is "<store_name> Tickets", on the page and in the manifest alike.
+	page_values.update({"store_name": store_name, "short_name": short_name, "theme_key": theme_key,
+		"page_title": page_title or store_name + " Tickets", "id_max_digits": str(ticket_store.id_max_digits)
+		if ticket_store else ""})
 	viewer_handler.server_version = server_header
 
 
@@ -213,6 +221,8 @@ page_values = {
 	"short_name": "",
 	"id_prefix": ticket_store.id_prefix if ticket_store else "",
 	"theme_key": "",
+	"page_title": "",
+	"id_max_digits": "",
 }
 placeholder_pattern = re.compile(r"\{\{([a-z_]+)\}\}")
 
@@ -230,7 +240,7 @@ def render_page(body):
 def render_manifest(body):
 	"""manifest.webmanifest with this project's names in place of the file's generic ones."""
 	manifest = json.loads(body.decode("utf-8"))
-	manifest["name"] = store_name + " Tickets"
+	manifest["name"] = page_values["page_title"] or store_name + " Tickets"
 	manifest["short_name"] = short_name
 	manifest["description"] = "Read-only view of the {} project tickets.".format(store_name)
 	return (json.dumps(manifest, indent=2, ensure_ascii=False) + "\n").encode("utf-8")
@@ -457,7 +467,7 @@ def print_urls(port, bind_address):
 		else:
 			print("on the LAN:    no private IPv4 address on the default-route adapter of this PC")
 	else:
-		print("LAN access:    off (bound to 127.0.0.1; start without --local-only for the phone)")
+		print("LAN access:    off (bound to 127.0.0.1; start with --all-interfaces for the phone)")
 
 
 def health(port, marker=None):
@@ -731,8 +741,8 @@ def ensure_running(port, bind_address):
 		# Another start is trimming or writing it; the log is only a debugging aid.
 		pass
 	arguments = [sys.executable, os.path.abspath(__file__), "--foreground", "--port", str(port)]
-	if bind_address == local_bind:
-		arguments.append("--local-only")
+	if bind_address == lan_bind:
+		arguments.append("--all-interfaces")
 	if ticket_store.tickets_dir != default_tickets_dir:
 		arguments += ["--data-dir", ticket_store.tickets_dir]
 	options = {"stdin": subprocess.DEVNULL, "stdout": subprocess.DEVNULL, "stderr": subprocess.DEVNULL,
@@ -875,7 +885,12 @@ def main():
 	shown_name = ticket_store.ascii_text(store_name) if ticket_store else "the"
 	parser = argparse.ArgumentParser(description="{} ticket viewer (read-only).".format(shown_name), allow_abbrev=False)
 	parser.add_argument("--port", type=int, help="serve on this port instead of config.json's viewer_port")
-	parser.add_argument("--local-only", action="store_true", help="bind 127.0.0.1 instead of the LAN")
+	bind_choice = parser.add_mutually_exclusive_group()
+	bind_choice.add_argument("--all-interfaces", action="store_true", help="bind 0.0.0.0, reachable from the LAN (the "
+		"default is 127.0.0.1 only)")
+	# Before 1.4.0 the default was the LAN and this flag opted out; it is kept so existing start lines still work.
+	bind_choice.add_argument("--local-only", action="store_true", help="bind 127.0.0.1 (the default; kept for older "
+		"start lines)")
 	parser.add_argument("--foreground", action="store_true", help="run in this console")
 	parser.add_argument("--stop", action="store_true", help="stop the recorded server")
 	parser.add_argument("--data-dir", help="serve tickets from this directory instead (a test fixture)")
@@ -884,7 +899,7 @@ def main():
 		return stop()
 	if args.data_dir:
 		use_data_dir(os.path.abspath(args.data_dir))
-	bind_address = local_bind if args.local_only else lan_bind
+	bind_address = lan_bind if args.all_interfaces else local_bind
 	check_settings()
 	if args.port is not None and not 1 <= args.port <= 65535:
 		print("ERROR --port must be a port number (1-65535), not {}".format(args.port))

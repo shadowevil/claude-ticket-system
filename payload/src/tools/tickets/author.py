@@ -713,7 +713,7 @@ def build_parser():
 		sub.add_argument("--relates", action="append", help="a related ticket (repeatable)")
 		sub.add_argument("--from-json", metavar="FILE", help="one JSON object with an import record's keys (summary, "
 			"severity, owner, author, status, target, tags, body, links {tickets, files, commits, blocks, blocked_by, "
-			"relates_to}; no comments: add them with comment afterwards), or - for stdin; instead of the flags")
+			"relates_to}, goals; no comments: add them with comment afterwards), or - for stdin; instead of the flags")
 		add_json(sub)
 
 	draft = commands.add_parser("draft", help="print the ticket new would write, or every problem")

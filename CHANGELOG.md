@@ -2,6 +2,23 @@
 
 Versions use x.y.z numbering (user rule, 2026-09-30): **minor** means the configuration or a JSON structure changed, **patch** is anything smaller such as UI updates and fixes, and **major** is kept for large progress, which is not defined yet. Each entry lists the items it ships, by their numbers (`B<n>`) in the maintainer's internal backlog, and its upgrade steps. The steps in full are in `docs/UPGRADING.md`.
 
+## [1.6.0] - 2026-11-26
+
+**A ticket timeline: goals and steps, shown live in a Goals tab.** A **minor**: the ticket schema gains an optional `goals` field. Existing tickets validate unchanged.
+
+- **Goals and steps on a ticket (B72):** an optional ordered `goals` list, each goal with ordered steps; each has a status (`pending`, `active`, `done`), and steps record `started` and `done` times. New `tickets.py goal add|start|done|list` and `tickets.py step add|start|done` keep it; each bumps `updated`. A goal is done when all its steps are; a new step reopens it. `validate` checks ids, statuses and done times, naming the goal and step (`step G1 S3 is done but has no done time`). Goal and step ids may be written `G1`, `g1`, `1` or `G01` (B73).
+- **A Goals tab in the viewer (B72):** the detail pane has Ticket and Goals tabs under the back bar. Goals shows a vertical timeline: progress, a pulsing active goal and step, and step times, updated live as an agent works. Motion stops under reduced-motion settings.
+- **The skill and rules doc** tell agents to set up goals and steps when work on a ticket starts and to mark each step as it starts and finishes (B72).
+- **Import (B73):** `tickets.py import` and `author.py draft|new --from-json` accept `goals`, checked like any timeline; a bad one refuses the input.
+- **merge-doc (B70, maintainer tooling):** flags `x.y.z` versions in kept project text that are not the release's, and `merge-doc --check-resolved <doc>` lists conflict release lines a resolved doc dropped.
+- **Adopting guide (B71):** the smoke ticket stays `in_review` until the adoption commit; match line endings when appending to `.gitignore`/`.gitattributes`; a `git check-ignore` check in step 9; hand-editing a tag's description or colour.
+- **Changed files:** `tickets.py`, `author.py`, `app.js`, `style.css`, `VERSION`, the schema (merged by the update), the skill and the rules doc (staged by the update for review).
+- **Upgrade:** from 1.5.x the viewer offers it as an update; the user clicks it. The schema merge adds `goals`. The goal commands refuse on a store whose schema lacks `goals` and say to upgrade.
+- **Ships:** B70, B71, B72, B73.
+
+Agents:
+- Tickets can carry a timeline of goals and steps. When you start work on a ticket, add its goals and steps (`tickets.py goal add <ID> "<title>" --step "<title>" ...`), then run `tickets.py step start` and `tickets.py step done` as each step happens, so the viewer's Goals tab shows live progress. See the rules doc.
+
 ## [1.5.4] - 2026-11-01
 
 **Nothing adopter-specific reaches the public repository.** A **patch**: no configuration, ticket schema, `tags.json` or API JSON change; no tool or viewer file changes for an adopter.

@@ -12,6 +12,12 @@ tool for agents (tag store, tag groups, drafts, migration); it writes through th
     python <CLI_DIR>/tickets.py set XY-0004 --status in_progress --add-tag docs
     python <CLI_DIR>/tickets.py set XY-0004 --blocked-by XY-0002 --relates 7
     python <CLI_DIR>/tickets.py comment XY-0004 --author pm --body-file <path, or - for stdin>
+    python <CLI_DIR>/tickets.py goal add XY-0004 "<goal title>" [--step "<step title>" ...]
+    python <CLI_DIR>/tickets.py step add XY-0004 G1 "<step title>"
+    python <CLI_DIR>/tickets.py step start XY-0004 G1 S1
+    python <CLI_DIR>/tickets.py step done XY-0004 G1 S1
+    python <CLI_DIR>/tickets.py goal start|done XY-0004 G1
+    python <CLI_DIR>/tickets.py goal list XY-0004
     python <CLI_DIR>/tickets.py list --active --owner <area>
     python <CLI_DIR>/tickets.py show XY-0004
     python <CLI_DIR>/tickets.py validate
@@ -33,6 +39,11 @@ as needed; the untyped links.tickets is still read, as relates-to. A block is wr
 (--block, --blocked-by, and the --remove-* flags), and validate fails a block that has one side only. comment appends
 {author, at, body} to a ticket's optional comments list. Mentions of ticket ids in a body or a comment are derived,
 never stored: show prints them, and validate warns about one naming a ticket the store lacks.
+
+goal and step (1.6.0) keep a ticket's optional timeline, its goals list (timeline_statuses): an agent adds goals and
+steps when it starts on a ticket and starts and finishes each step as it goes; the viewer's Goals tab shows it live.
+step start stamps started and makes the goal active, step done stamps done, and a goal is done once all its steps are.
+Each writes like comment does (change_timeline) and bumps updated; show prints the timeline, validate checks it.
 
 import creates one ticket per record of a JSON array, in input order, with the ids `new` would give and
 the records' own created / updated times: for moving in from another tracker. It validates the store and
@@ -196,7 +207,15 @@ long_ticket_file_pattern = re.compile("^" + re.escape(id_prefix) + r"([0-9]{" + 
 mention_id_pattern = re.compile(r"(?<![\w-])(" + re.escape(id_prefix) + r"[0-9]{4," + str(id_max_digits) + r"})(?![\w])")
 # Canonical field order on disk, so every file diffs the same way.
 field_order = ["id", "summary", "status", "severity", "owner_area", "target_patch", "tags",
-	"author", "created", "updated", "links", "body", "comments"]
+	"author", "created", "updated", "links", "body", "comments", "goals"]
+# The timeline (1.6.0): a ticket's optional goals, each with steps, that `goal` and `step` keep as an agent works and the
+# viewer's Goals tab shows. A goal is G<n>, a step S<n> within its goal, numbered in the order added; each is pending,
+# active or done. A step's started and done are its times (null until stamped). A goal whose steps are all done (one at
+# least) is done, and a done goal has no unfinished step: the writers keep that after every change (sync_goal_status),
+# and validate checks it. A goal without steps is done only by `goal done`.
+timeline_statuses = ["pending", "active", "done"]
+goal_id_pattern = re.compile(r"^G([1-9][0-9]{0,5})$")
+step_id_pattern = re.compile(r"^S([1-9][0-9]{0,5})$")
 # The links every ticket carries (the schema requires them; `new` writes them empty).
 link_kinds = ["commits", "files", "tickets"]
 # The typed ticket links (1.4.0): optional, so a ticket from before them validates unchanged; a writer adds one when a
@@ -223,7 +242,7 @@ timestamp_pattern = re.compile(r"^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[
 import_required = ["summary", "severity", "owner_area", "author"]
 import_aliases = {"owner_area": ["owner", "owner_area"], "target_patch": ["target", "target_patch"]}
 import_keys = ["summary", "severity", "owner", "owner_area", "author", "status", "target", "target_patch",
-	"tags", "body", "links", "comments", "created", "updated", "id"]
+	"tags", "body", "links", "comments", "goals", "created", "updated", "id"]
 # At most this many FAIL lines are printed, each cut to this many characters.
 import_shown_failures = 100
 import_failure_width = 300
@@ -1023,6 +1042,8 @@ def refuse_unusable_ticket(ticket, ticket_id, args):
 		problem = "body is {}, not text to append to".format(shown(ticket["body"]))
 	elif "comments" in ticket and not isinstance(ticket["comments"], list):
 		problem = "comments is {}, not a list".format(shown(ticket["comments"]))
+	elif "goals" in ticket and not isinstance(ticket["goals"], list):
+		problem = "goals is {}, not a list".format(shown(ticket["goals"]))
 	else:
 		for kind in link_kinds + typed_link_kinds:
 			if isinstance(links, dict) and kind in links and not isinstance(links[kind], list):
@@ -1088,6 +1109,7 @@ def type_matches(value, expected):
 		"string": lambda v: isinstance(v, str),
 		"integer": lambda v: isinstance(v, int) and not isinstance(v, bool),
 		"boolean": lambda v: isinstance(v, bool),
+		"null": lambda v: v is None,
 	}
 	if expected not in checks:
 		raise ticket_error("unsupported schema type: " + expected)
@@ -1199,8 +1221,45 @@ def store_errors(ticket, store, groups, known_ids, file_name=None, invalid_tags=
 	for index, comment in enumerate(comments if isinstance(comments, list) else []):
 		if isinstance(comment, dict) and isinstance(comment.get("at"), str) and comment["at"] < ticket["created"]:
 			errors.append(("comments[{}]".format(index), "the comment is dated before the ticket was created"))
+	errors += timeline_errors(ticket)
 	if ticket["updated"] < ticket["created"]:
 		errors.append(("updated", "updated is earlier than created"))
+	return errors
+
+
+def timeline_errors(ticket):
+	"""The timeline's checks a schema cannot express, as (field, what is wrong) pairs: goal ids unique in the ticket,
+	step ids unique in their goal, a done step stamped done, a done goal holding only done steps, and a goal whose steps
+	are all done (one at least) done.
+	A part the schema should have refused (not a list, not an object) is skipped, never a traceback."""
+	errors = []
+	goals = ticket.get("goals", [])
+	seen_goals = set()
+	for goal_index, goal in enumerate(goals if isinstance(goals, list) else []):
+		if not isinstance(goal, dict):
+			continue
+		where = "goals[{}]".format(goal_index)
+		if goal.get("id") in seen_goals:
+			errors.append((where, "duplicate goal id {}".format(one_line(goal.get("id")))))
+		seen_goals.add(goal.get("id") if isinstance(goal.get("id"), str) else None)
+		steps = goal.get("steps") if isinstance(goal.get("steps"), list) else []
+		steps = [step for step in steps if isinstance(step, dict)]
+		seen_steps = set()
+		for step_index, step in enumerate(steps):
+			step_where = "{}.steps[{}]".format(where, step_index)
+			if step.get("id") in seen_steps:
+				errors.append((step_where, "duplicate step id {} in goal {}".format(one_line(step.get("id")),
+					one_line(goal.get("id")))))
+			seen_steps.add(step.get("id") if isinstance(step.get("id"), str) else None)
+			if step.get("status") == "done" and not is_timestamp(step.get("done")):
+				errors.append((step_where, "step {} {} is done but has no done time".format(
+						one_line(goal.get("id")), one_line(step.get("id")))))
+		every_done = all(step.get("status") == "done" for step in steps)
+		if goal.get("status") == "done" and not every_done:
+			errors.append((where, "goal {} is done but not all its steps are".format(one_line(goal.get("id")))))
+		elif steps and every_done and goal.get("status") != "done":
+			errors.append((where, "every step of goal {} is done but the goal is {}".format(
+				one_line(goal.get("id")), one_line(goal.get("status")))))
 	return errors
 
 
@@ -1629,6 +1688,223 @@ def command_comment(args):
 	print("commented on {} ({} comment(s))".format(ticket["id"], len(ticket["comments"])))
 
 
+# --- the timeline: goal and step (1.6.0) ----------------------------------------------------------
+
+def timeline_title(text, what):
+	"""A goal's or step's title as given: one line, not empty (the schema caps its length)."""
+	if has_line_break(text):
+		raise ticket_error("the {} title has a line break; it must be one line".format(what))
+	text = text.strip()
+	if not text:
+		raise ticket_error("the {} title is empty; nothing written".format(what))
+	return text
+
+
+def timeline_ref(text, pattern, letter):
+	"""A goal or step reference as typed (G2, g2, G02 or 2) in its stored form, G2; a ticket_error when it is none.
+	Leading zeros are dropped, with or without the letter."""
+	value = text.strip().upper()
+	digits = value[1:] if value[:1] == letter else value
+	if digits.isdigit():
+		value = letter + digits.lstrip("0")
+	if not pattern.fullmatch(value):
+		raise ticket_error("{} is not a {} id ({}1, {}2, ...)".format(one_line(text), "goal" if letter == "G" else "step",
+			letter, letter))
+	return value
+
+
+def next_timeline_id(items, pattern, letter):
+	"""The next id of a goal list or a step list: one more than the highest there, so a number is never given twice."""
+	numbers = [int(pattern.fullmatch(item["id"]).group(1)) for item in items
+		if isinstance(item, dict) and isinstance(item.get("id"), str) and pattern.fullmatch(item["id"])]
+	return letter + str(max(numbers + [0]) + 1)
+
+
+def ticket_goals(ticket):
+	"""The ticket's goals list, refusing (before anything is written) a timeline this command cannot work on."""
+	goals = ticket.setdefault("goals", [])
+	for goal in goals:
+		if not isinstance(goal, dict) or not isinstance(goal.get("steps"), list) or not all(
+				isinstance(step, dict) for step in goal["steps"]):
+			raise ticket_error("{}: its goals do not read as goals with step lists; fix the file, then run validate".format(
+				ticket["id"]))
+	return goals
+
+
+def find_goal(ticket, goal_ref):
+	goal_id = timeline_ref(goal_ref, goal_id_pattern, "G")
+	for goal in ticket_goals(ticket):
+		if goal.get("id") == goal_id:
+			return goal
+	raise ticket_error("{} has no goal {}; run goal list {}".format(ticket["id"], goal_id, ticket["id"]))
+
+
+def find_step(ticket, goal, step_ref):
+	step_id = timeline_ref(step_ref, step_id_pattern, "S")
+	for step in goal["steps"]:
+		if step.get("id") == step_id:
+			return step
+	raise ticket_error("{} goal {} has no step {}; run goal list {}".format(ticket["id"], goal["id"], step_id, ticket["id"]))
+
+
+def sync_goal_status(goal):
+	"""A goal's status after a change to its steps: done when it has steps and all are done; active when a step is
+	started or done (a done goal given a new step opens again); else as it was (pending, or active from goal start)."""
+	steps = goal["steps"]
+	if steps and all(step.get("status") == "done" for step in steps):
+		goal["status"] = "done"
+	elif any(step.get("status") in ("active", "done") for step in steps) or goal.get("status") == "done":
+		goal["status"] = "active"
+
+
+def timeline_counts(ticket):
+	"""(steps done, steps, goals done, goals) of a ticket's timeline, counting only what reads as goals and steps."""
+	goals = [goal for goal in ticket.get("goals", []) if isinstance(goal, dict)] if isinstance(ticket.get("goals"),
+		list) else []
+	steps = [step for goal in goals if isinstance(goal.get("steps"), list) for step in goal["steps"] if isinstance(step, dict)]
+	return (sum(1 for step in steps if step.get("status") == "done"), len(steps),
+		sum(1 for goal in goals if goal.get("status") == "done"), len(goals))
+
+
+def refuse_schema_without_goals():
+	"""The store's schema predates the timeline (1.6.0): every write would fail on it, so say why first."""
+	schema = read_schema()
+	properties = schema.get("properties") if isinstance(schema, dict) else None
+	if not isinstance(properties, dict) or "goals" not in properties:
+		raise ticket_error("the store's schema {} has no goals field (it predates 1.6.0): upgrade the ticket system "
+			"first (docs/UPGRADING.md); nothing was written".format(one_line(schema_path)))
+
+
+def change_timeline(ticket_id, command, change):
+	"""Load a ticket, apply change(ticket, now) to its timeline, stamp `updated` with the same time, check it whole and
+	write it, as `comment` does; the ticket as written and what change returned (the goal or step it touched)."""
+	refuse_schema_without_goals()
+	ticket = load_ticket(ticket_id)
+	refuse_unusable_ticket(ticket, ticket_id, argparse.Namespace(command=command))
+	store = writable_tag_store()
+	if isinstance(ticket.get("tags"), list):
+		ticket["tags"] = [stored_tag_id(store, tag) or tag for tag in ticket["tags"]]
+	now = utc_now()
+	touched = change(ticket, now)
+	ticket["updated"] = now
+	check_before_write(ticket)
+	write_ticket(ticket, command)
+	return ticket, touched
+
+
+def timeline_report(ticket, what):
+	steps_done, steps, goals_done, goals = timeline_counts(ticket)
+	print(ascii_text("updated {}: {} ({} of {} steps done, {} of {} goals done)".format(ticket["id"], what, steps_done,
+		steps, goals_done, goals)))
+
+
+def command_goal(args):
+	ticket_id = normalize_id(args.id)
+	if args.goal_command == "list":
+		print_timeline(load_ticket(ticket_id), always=True)
+		return 0
+	if args.goal_command == "add":
+		title = timeline_title(args.title, "goal")
+		step_titles = [timeline_title(text, "step") for text in args.step or []]
+
+		def change(ticket, now):
+			goals = ticket_goals(ticket)
+			goal = {"id": next_timeline_id(goals, goal_id_pattern, "G"), "title": title, "status": "pending", "steps": []}
+			for text in step_titles:
+				goal["steps"].append({"id": next_timeline_id(goal["steps"], step_id_pattern, "S"), "title": text,
+					"status": "pending", "started": None, "done": None})
+			goals.append(goal)
+			return goal
+		ticket, goal = change_timeline(ticket_id, "goal add", change)
+		timeline_report(ticket, "added goal {} with {} step(s)".format(goal["id"], len(goal["steps"])))
+		return 0
+
+	def change(ticket, now):
+		goal = find_goal(ticket, args.goal)
+		if args.goal_command == "start":
+			if goal["steps"] and all(step.get("status") == "done" for step in goal["steps"]):
+				raise ticket_error("goal {} has every step done; add a step to open it again".format(goal["id"]))
+			goal["status"] = "active"
+		else:
+			unfinished = [step.get("id") for step in goal["steps"] if step.get("status") != "done"]
+			if unfinished:
+				raise ticket_error("goal {} has unfinished steps ({}): finish them with step done first".format(goal["id"],
+					", ".join(str(step_id) for step_id in unfinished)))
+			goal["status"] = "done"
+		return goal
+	ticket, goal = change_timeline(ticket_id, "goal " + args.goal_command, change)
+	timeline_report(ticket, "goal {} is {}".format(goal["id"], goal["status"]))
+	return 0
+
+
+def command_step(args):
+	ticket_id = normalize_id(args.id)
+	if args.step_command == "add":
+		title = timeline_title(args.title, "step")
+
+		def change(ticket, now):
+			goal = find_goal(ticket, args.goal)
+			step = {"id": next_timeline_id(goal["steps"], step_id_pattern, "S"), "title": title, "status": "pending",
+				"started": None, "done": None}
+			goal["steps"].append(step)
+			sync_goal_status(goal)
+			return (goal, step)
+		ticket, (goal, step) = change_timeline(ticket_id, "step add", change)
+		timeline_report(ticket, "added step {} {}".format(goal["id"], step["id"]))
+		return 0
+
+	def change(ticket, now):
+		goal = find_goal(ticket, args.goal)
+		step = find_step(ticket, goal, args.step)
+		if args.step_command == "start":
+			# Starting a done step opens it again; its first start time stays.
+			step["status"] = "active"
+			step["started"] = step.get("started") or now
+			step["done"] = None
+		else:
+			# A step finished without a start was started and finished at once; finishing it again keeps its time.
+			step["status"] = "done"
+			step["started"] = step.get("started") or now
+			step["done"] = step.get("done") or now
+		sync_goal_status(goal)
+		return (goal, step)
+	ticket, (goal, step) = change_timeline(ticket_id, "step " + args.step_command, change)
+	timeline_report(ticket, "step {} {} is {}".format(goal["id"], step["id"], step["status"]))
+	return 0
+
+
+def print_timeline(ticket, always=False):
+	"""show (and goal list): the timeline, goal by goal, each step with its times. Nothing for a ticket without goals,
+	unless always (goal list), which says so."""
+	goals = ticket.get("goals")
+	if not isinstance(goals, list) or not goals:
+		if always:
+			print("{} has no goals yet: add one with goal add {} \"<title>\"".format(ticket.get("id"), ticket.get("id")))
+		return
+	steps_done, steps, goals_done, goal_count = timeline_counts(ticket)
+	print("goals ({} of {} steps done, {} of {} goals done):".format(steps_done, steps, goals_done, goal_count))
+	marks = {"done": "x", "active": ">", "pending": " "}
+	for goal in goals:
+		if not isinstance(goal, dict):
+			print("  " + ascii_text(one_line(shown(goal))))
+			continue
+		goal_steps = goal.get("steps") if isinstance(goal.get("steps"), list) else []
+		done_count = sum(1 for step in goal_steps if isinstance(step, dict) and step.get("status") == "done")
+		print(ascii_text("  [{}] {} {} ({}/{}, {})".format(marks.get(goal.get("status"), "?"), goal.get("id"),
+			one_line(goal.get("title")), done_count, len(goal_steps), goal.get("status"))))
+		for step in goal_steps:
+			if not isinstance(step, dict):
+				print("      " + ascii_text(one_line(shown(step))))
+				continue
+			times = []
+			if step.get("started"):
+				times.append("started " + str(step["started"]))
+			if step.get("done"):
+				times.append("done " + str(step["done"]))
+			print(ascii_text("      [{}] {} {}{}".format(marks.get(step.get("status"), "?"), step.get("id"),
+				one_line(step.get("title")), "  (" + ", ".join(times) + ")" if times else "")))
+
+
 def ascii_text(text):
 	return text.encode("ascii", "replace").decode("ascii")
 
@@ -1718,7 +1994,7 @@ def command_show(args):
 	ticket = load_ticket(ticket_id)
 	store = reader_tag_store()
 	for field in field_order:
-		if field in ("body", "links", "comments"):
+		if field in ("body", "links", "comments", "goals"):
 			continue
 		value = ticket.get(field)
 		if field == "tags" and isinstance(value, list):
@@ -1744,6 +2020,12 @@ def command_show(args):
 	print("")
 	body = ticket.get("body", "")
 	print(ascii_text(body if isinstance(body, str) else json.dumps(body)))
+	if isinstance(ticket.get("goals"), list) and ticket["goals"]:
+		print("")
+		print_timeline(ticket)
+	elif "goals" in ticket and not isinstance(ticket["goals"], list):
+		print("")
+		print("goals: " + ascii_text(one_line(shown(ticket["goals"]))))
 	comments = ticket.get("comments")
 	if isinstance(comments, list) and comments:
 		print("")
@@ -1849,7 +2131,8 @@ def import_ticket(record, ticket_id, now, schema, store, groups, known_ids):
 	(open), target (or target_patch; 'next'), tags ([]; names or ids, as --tags takes them, written as ids and
 	checked against the tag groups), body (""; CRLF becomes LF), links ({}; any of tickets,
 	files, commits, each an array; a ticket link may be a bare number or lower case, as --link-ticket takes it,
-	and may name a ticket of this batch), created (now), updated (created), id (must be the id assigned).
+	and may name a ticket of this batch), comments, goals (the timeline, as the ticket file holds it; checked by the schema
+	and timeline_errors like any ticket), created (now), updated (created), id (must be the id assigned).
 	created and updated are written as utc_now() writes them, and none may be after now, the time this run
 	started. Any other key is a problem, and so is giving both names of a pair. summary and target are one line.
 	"""
@@ -1913,6 +2196,9 @@ def import_ticket(record, ticket_id, now, schema, store, groups, known_ids):
 		for index, comment in enumerate(record["comments"] if isinstance(record["comments"], list) else []):
 			if isinstance(comment, dict) and isinstance(comment.get("at"), str) and comment["at"] > now:
 				problems.append(("comments[{}].at".format(index), "{} is in the future (now is {})".format(comment["at"], now)))
+	if "goals" in record:
+		# The timeline's own checks (ids, done stamps) run with the other store checks below, once the schema passes.
+		ticket["goals"] = record["goals"]
 	schema_passed = True
 	for field, problem in line_break_errors(ticket):
 		schema_passed = False
@@ -2614,6 +2900,34 @@ def build_parser():
 	comment.add_argument("--author", required=True, choices=enum_of("author"))
 	comment.add_argument("--body-file", required=True, help="markdown file for the comment, or - for stdin")
 	comment.set_defaults(handler=command_comment)
+
+	goal = commands.add_parser("goal", help="add, start, finish or list a ticket's goals (the timeline; bumps updated)")
+	goal_commands = goal.add_subparsers(dest="goal_command", required=True, parser_class=strict_parser)
+	goal_add = goal_commands.add_parser("add", help="append a goal (pending), optionally with its steps")
+	goal_add.add_argument("id")
+	goal_add.add_argument("title", help="one line")
+	goal_add.add_argument("--step", action="append", help="a step to add to the goal, in order (repeatable)")
+	for name, text in (("start", "mark a goal active"), ("done", "mark a goal done (every step must be done)")):
+		goal_change = goal_commands.add_parser(name, help=text)
+		goal_change.add_argument("id")
+		goal_change.add_argument("goal", help="goal id: G1, or 1")
+	goal_list = goal_commands.add_parser("list", help="print a ticket's goals and steps")
+	goal_list.add_argument("id")
+	goal.set_defaults(handler=command_goal)
+
+	step = commands.add_parser("step", help="add, start or finish a step of a goal (bumps updated)")
+	step_commands = step.add_subparsers(dest="step_command", required=True, parser_class=strict_parser)
+	step_add = step_commands.add_parser("add", help="append a step (pending) to a goal")
+	step_add.add_argument("id")
+	step_add.add_argument("goal", help="goal id: G1, or 1")
+	step_add.add_argument("title", help="one line")
+	for name, text in (("start", "mark a step active and stamp started; its goal becomes active"),
+			("done", "mark a step done and stamp done; its goal is done once every step is")):
+		step_change = step_commands.add_parser(name, help=text)
+		step_change.add_argument("id")
+		step_change.add_argument("goal", help="goal id: G1, or 1")
+		step_change.add_argument("step", help="step id: S1, or 1")
+	step.set_defaults(handler=command_step)
 
 	listing = commands.add_parser("list", help="list tickets, filtered")
 	listing.add_argument("--status", help="comma-separated statuses")

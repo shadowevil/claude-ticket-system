@@ -60,6 +60,10 @@
 		// How many comments the detail view shows, for which ticket: a reload keeps it, another ticket starts again.
 		comment_limit: 10,
 		comment_ticket: null,
+		// The detail view's tab (B72): "ticket" or "goals". It stays across live refreshes and ticket switches.
+		// shown_detail is the ticket and tab last drawn, so a live refresh of the same view keeps its scroll position.
+		detail_tab: "ticket",
+		shown_detail: null,
 		filters: { status: "active", severity: "", tag: "", owner: "", target: "", text: "" }
 	};
 
@@ -838,11 +842,155 @@
 		return append(el("div", "detail-bar"), [back, el("span", "detail-key", ticket_id || "")]);
 	}
 
+	/* --- the timeline: a ticket's goals and steps (B72), kept by tickets.py goal and step ------------------- */
+
+	var timeline_statuses = ["pending", "active", "done"];
+	var check_mark = "\u2713";
+
+	// Only a known status reaches a class name; anything else shows as pending.
+	function timeline_status(value) {
+		return timeline_statuses.indexOf(value) >= 0 ? value : "pending";
+	}
+
+	// The goals a ticket file holds that read as goals, each with the steps that read as steps.
+	function ticket_goals(ticket) {
+		var goals = Array.isArray(ticket.goals) ? ticket.goals : [];
+		return goals.filter(function (goal) {
+			return goal && typeof goal === "object" && !Array.isArray(goal);
+		}).map(function (goal) {
+			var steps = Array.isArray(goal.steps) ? goal.steps : [];
+			return {
+				id: String(goal.id || ""),
+				title: String(goal.title || ""),
+				status: timeline_status(goal.status),
+				steps: steps.filter(function (step) {
+					return step && typeof step === "object" && !Array.isArray(step);
+				}).map(function (step) {
+					return { id: String(step.id || ""), title: String(step.title || ""), status: timeline_status(step.status),
+						started: step.started, done: step.done };
+				})
+			};
+		});
+	}
+
+	function timeline_counts(goals) {
+		var counts = { steps: 0, steps_done: 0, goals: goals.length, goals_done: 0 };
+		goals.forEach(function (goal) {
+			counts.steps += goal.steps.length;
+			counts.steps_done += goal.steps.filter(function (step) { return step.status === "done"; }).length;
+			if (goal.status === "done") {
+				counts.goals_done += 1;
+			}
+		});
+		return counts;
+	}
+
+	// "HH:MM" in local time for a stamp from today, else "YYYY-MM-DD HH:MM"; "" when it is not a stamp.
+	function step_time(timestamp) {
+		if (typeof timestamp !== "string" || !timestamp) {
+			return "";
+		}
+		var date = new Date(timestamp);
+		if (isNaN(date.getTime())) {
+			return "";
+		}
+		var stamp = local_stamp(timestamp);
+		return date.toDateString() === new Date().toDateString() ? stamp.slice(11) : stamp;
+	}
+
+	function step_node(step) {
+		var times = [];
+		if (step.status === "done" && step_time(step.done)) {
+			times.push("done " + step_time(step.done));
+		} else if (step.status !== "pending" && step_time(step.started)) {
+			times.push("started " + step_time(step.started));
+		}
+		var when = el("span", "timeline-time", times.join(""));
+		when.title = [step.started ? "started " + step.started : "", step.done ? "done " + step.done : ""]
+			.filter(Boolean).join(", ");
+		var item = append(el("li", "timeline-step " + step.status), [
+			el("span", "timeline-check", step.status === "done" ? check_mark : ""),
+			el("span", "timeline-step-title", step.title),
+			when
+		]);
+		item.setAttribute("aria-label", step.title + " (" + step.status + ")");
+		return item;
+	}
+
+	function goal_node(goal, index) {
+		var done = goal.steps.filter(function (step) { return step.status === "done"; }).length;
+		var dot = el("span", "timeline-node", goal.status === "done" ? check_mark : String(index + 1));
+		dot.setAttribute("aria-hidden", "true");
+		var head = append(el("h3", "timeline-goal-title"), [el("span", null, goal.title),
+			el("span", "timeline-time", done + "/" + goal.steps.length)]);
+		var node = append(el("li", "timeline-goal " + goal.status), [dot, head]);
+		node.setAttribute("aria-label", "Goal " + (index + 1) + ": " + goal.title + " (" + goal.status + ")");
+		if (goal.steps.length) {
+			node.appendChild(append(el("ul", "timeline-steps"), goal.steps.map(step_node)));
+		}
+		return node;
+	}
+
+	/* The Goals tab: the ticket's key and summary, the progress (steps and goals done, a "live" dot while unfinished),
+	   then one vertical rail of goals, each with its steps as a checklist. */
+	function goals_view(ticket) {
+		var goals = ticket_goals(ticket);
+		var view = append(el("article", "detail goals-view"), [el("div", "detail-key", ticket.id), el("h1", null, ticket.summary)]);
+		if (!goals.length) {
+			view.appendChild(el("p", "timeline-empty",
+				"No goals yet. An agent adds them with tickets.py goal add as it starts on the ticket."));
+			return view;
+		}
+		var counts = timeline_counts(goals);
+		var finished = counts.steps_done === counts.steps && counts.goals_done === counts.goals;
+		var summary = el("div", "timeline-summary");
+		if (!finished) {
+			append(summary, [append(el("span", "timeline-live"), [el("span", "timeline-live-dot"), el("span", null, "live")]),
+				el("span", "muted", " \u00b7 ")]);
+		}
+		summary.appendChild(el("span", null, counts.steps_done + " of " + counts.steps + " steps \u00b7 " + counts.goals_done +
+			" of " + counts.goals + " goals"));
+		var bar = el("div", "timeline-progress");
+		bar.setAttribute("role", "progressbar");
+		bar.setAttribute("aria-valuemin", "0");
+		bar.setAttribute("aria-valuemax", String(counts.steps));
+		bar.setAttribute("aria-valuenow", String(counts.steps_done));
+		var fill = el("span");
+		fill.style.width = (counts.steps ? counts.steps_done / counts.steps * 100 : 0) + "%";
+		bar.appendChild(fill);
+		return append(view, [summary, bar, append(el("ol", "timeline"), goals.map(goal_node))]);
+	}
+
+	function detail_tabs(ticket) {
+		var counts = timeline_counts(ticket_goals(ticket));
+		var strip = el("div", "detail-tabs");
+		strip.setAttribute("role", "tablist");
+		[["ticket", "Ticket"], ["goals", "Goals"]].forEach(function (entry) {
+			var button = el("button", "detail-tab" + (state.detail_tab === entry[0] ? " active" : ""), entry[1]);
+			button.type = "button";
+			button.setAttribute("role", "tab");
+			button.setAttribute("aria-selected", state.detail_tab === entry[0] ? "true" : "false");
+			if (entry[0] === "goals" && counts.goals) {
+				button.appendChild(el("span", "detail-tab-count", counts.steps_done + "/" + counts.steps));
+			}
+			button.addEventListener("click", function () {
+				if (state.detail_tab !== entry[0]) {
+					state.detail_tab = entry[0];
+					render_detail();
+				}
+			});
+			strip.appendChild(button);
+		});
+		return strip;
+	}
+
 	function render_detail() {
 		var pane = $("detail");
+		var scroll = pane.scrollTop;
 		pane.textContent = "";
 		var ticket = state.selected ? find_ticket(state.selected) : null;
 		if (!ticket) {
+			state.shown_detail = null;
 			pane.appendChild(detail_bar(state.selected));
 			pane.appendChild(el("div", "placeholder", state.selected
 				? "No ticket " + state.selected + " in .claude/tickets."
@@ -850,6 +998,17 @@
 			return;
 		}
 		pane.appendChild(detail_bar(ticket.id));
+		pane.appendChild(detail_tabs(ticket));
+		// A live refresh redraws the same ticket and tab where it was scrolled to; another ticket or tab starts at the top.
+		var shown = ticket.id + " " + state.detail_tab;
+		var same_view = state.shown_detail === shown;
+		state.shown_detail = shown;
+		document.title = ticket.id + " - " + page_title;
+		if (state.detail_tab === "goals") {
+			pane.appendChild(goals_view(ticket));
+			pane.scrollTop = same_view ? scroll : 0;
+			return;
+		}
 		if (state.comment_ticket !== ticket.id) {
 			state.comment_ticket = ticket.id;
 			state.comment_limit = comment_page_size;

@@ -4,6 +4,15 @@
 
 *Part of the upgrade guide, `../UPGRADING.md`: read its opening first, for `SRC`, `REPO`, `SCRATCH` and `CLI_DIR`. A bare "sect. N" here is that guide's sect. N, and its index names the file. `ADOPTING.md` is `../ADOPTING.md`, an index too.*
 
+## 1.6.0 (2026-11-26)
+
+Ticket timelines: goals and steps on a ticket, a Goals tab in the viewer (`CHANGELOG.md` [1.6.0]). A minor: the ticket schema gains the optional `goals` field; no data moves and existing tickets validate unchanged. From 1.5.x with `update_source` set, the viewer offers it as an update: the user clicks it (no agent applies it). Then:
+
+- **The schema** is merged by the update (`schema_merge.py`), adding `goals`. Until it is, `tickets.py goal` and `step` refuse and say to upgrade.
+- **The rules doc and skill** gain the timeline commands and the rule to keep steps current; the update stages the merged rules doc in `build/tickets/staged/1.6.0/tickets.md` for review. The staged skill already has its `Ticket system version` row set to `1.6.0`; check it when you review.
+- **The viewer** restarts detached, as in 1.5.3; restart a `--foreground` viewer.
+- A copy on 1.4.x installs the newest 1.5.x by hand with sect. 10, then takes this update.
+
 ## 1.5.4 (2026-11-01)
 
 Public-tree hygiene only (`CHANGELOG.md` [1.5.4]): the release check now catches adopter or machine names in the shipped files before the tag, and the public manifests drop their changelog text. Nothing to do; no tool, viewer, schema or `config.json` change reaches a board.

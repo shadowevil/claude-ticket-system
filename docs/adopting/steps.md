@@ -30,17 +30,17 @@ It exits 0 either way; read the word. On Windows, `Get-NetTCPConnection -State L
 
 **From a clone of the GitHub repo:** skip the export. The clone is the release: `PAYLOAD` is `<SRC>/payload/`. (The public repo tags each release from 1.3.1 on, so the export below also works in a clone for 1.3.1 and later; you don't need it.)
 
-**Check:** `<SRC>/VERSION` reads `1.5.4`, and `git -C <SRC> status --short` prints nothing, so you install the release as published.
+**Check:** `<SRC>/VERSION` reads `1.6.0`, and `git -C <SRC> status --short` prints nothing, so you install the release as published.
 
 **On the maintainer's machine,** SRC is the maintainer's source folder. Export the release from it into your scratch:
 
 ```bash
-python <SRC>/tools/release.py export 1.5.4 <SCRATCH>/ticket-system-1.5.4
+python <SRC>/tools/release.py export 1.6.0 <SCRATCH>/ticket-system-1.6.0
 ```
 
-The export reads the release tag, `tickets-v1.5.4`, so it works only once that tag exists; before then it stops with `ERROR cannot read tickets-v1.5.4: ...`. (The maintainer's pre-release test exports a branch with `--ref <branch>`; an adopter never does.) Everything below copies from `<SCRATCH>/ticket-system-1.5.4/payload/` (call it `PAYLOAD`), never from SRC's working tree, which may be mid-change.
+The export reads the release tag, `tickets-v1.6.0`, so it works only once that tag exists; before then it stops with `ERROR cannot read tickets-v1.6.0: ...`. (The maintainer's pre-release test exports a branch with `--ref <branch>`; an adopter never does.) Everything below copies from `<SCRATCH>/ticket-system-1.6.0/payload/` (call it `PAYLOAD`), never from SRC's working tree, which may be mid-change.
 
-**Check:** the command prints `exported tickets-v1.5.4 to ...`, and `PAYLOAD/../VERSION` reads `1.5.4`.
+**Check:** the command prints `exported tickets-v1.6.0 to ...`, and `PAYLOAD/../VERSION` reads `1.6.0`.
 
 ## 3. Copy the files
 
@@ -155,6 +155,7 @@ python <CLI_DIR>/author.py tags add net --color "#2b8fa3" --description "Example
 - **Area tags:** make them match your `AREAS`. The example has `core` and `ui`, so rename them and add one per area. `docs` is an area tag too. A rename keeps the id, so no ticket changes.
 - **A rename doesn't touch `tag_groups`.** If a group in your `config.json` names the old tag (the example config's `area` group names `core` and `ui`), change the name there too, at once. `author.py tags rename` warns `config.json tag_groups: group <g> still names '<old>'; ...`, and until you fix the group every writer refuses: a group naming a tag the store lacks is a config error.
 - **Peers:** if peers may send you issues, rename `peer` to what they send: a `peer_<project>` tag per sender, or one for all, such as `downstream`. The skill's Settings name it (step 8).
+- **Re-describe or re-colour a tag:** `author.py` has no command for either (`add` sets them once; `rename` changes only the name), so edit the entry in `tags.json` by hand: change its `description` or `color` and leave `name` and the id as they are. Do it while no `tickets.py` or `author.py` is running, keep the colour `#rrggbb`, then run `tickets.py validate`, which checks the store. To rename, use `author.py tags rename` (above), not a hand edit: it also warns about `tag_groups`.
 - **Drop an example tag:** delete its entry from `tags.json` by hand while no ticket uses it. Leave `next_id` as it is.
 
 **Tag groups (optional).** A tag group says how many of a set of tags every ticket must carry. Without `tag_groups` in `config.json` there are none. A group is written with tag names:
@@ -211,7 +212,7 @@ Then read the sect. 5a table: it lists your peers, or says "none".
 
    | Row | Your value |
    |---|---|
-   | Ticket system version | `1.5.4`, as shipped |
+   | Ticket system version | `1.6.0`, as shipped |
    | CLI | `python <CLI_DIR>/tickets.py` |
    | Store | `.claude/tickets/` and the note on what each file holds, as shipped |
    | Store, absolute (for replies to a peer) | `<REPO>\.claude\tickets\`, the absolute path |
@@ -251,8 +252,17 @@ Then read the sect. 5a table: it lists your peers, or says "none".
   ```
 
   Keep the icons line after the `<CLI_DIR>/**` line: the later line wins, so the PNGs stay binary. The hooks line does no harm without the hooks.
+- **Match the file's line endings when you append** to an existing `.gitignore` or `.gitattributes`. If it uses CRLF, write your lines with CRLF, so the file doesn't end up mixed. `git ls-files --eol .gitignore .gitattributes` shows the working-tree ending in the `w/` column (`w/crlf` or `w/lf`).
+- **Rules that ignore the files you just installed.** A `.gitignore` that ignores `*.md` (or `.claude/`) and whitelists what it wants leaves the rules doc and the skill untracked, with no warning. Run this from `REPO`, with your `CLI_DIR`:
+
+  ```bash
+  git ls-files --others --ignored --exclude-standard -- .claude/docs/tickets.md .claude/skills/tickets <CLI_DIR>
+  ```
+
+  **Expect no output.** It lists every ignored file under those paths, including files inside `<CLI_DIR>` caught by a rule such as `*.py` (`git check-ignore <CLI_DIR>` would miss those: on a folder it reports only a rule on the folder itself). Run it before the adoption commit, while the files are untracked. A path it prints is ignored; `git check-ignore -v <path>` names the rule. Add a whitelist line after that rule, for each printed path, such as `!.claude/docs/tickets.md` and `!.claude/skills/tickets/SKILL.md`, then run the check again. Git cannot re-include a file whose parent folder is ignored: if the rule is on a folder (`.claude/`, `src/`), change it to ignore the folder's contents (`.claude/*`), then whitelist the subfolders (`!.claude/docs/`, `!.claude/skills/`).
 
 **Check:**
+- The `git ls-files --others --ignored` check on the rules doc, the skill and `<CLI_DIR>` (above) prints nothing.
 - `git status` in `REPO` lists no `build/` or `__pycache__/` entries after step 10, and `git check-ignore .claude/tickets/tags.json.lock` prints the path.
 - `git check-attr text eol -- <CLI_DIR>/tickets.py .claude/skills/tickets/SKILL.md .claude/tickets/config.json` prints `text: set` and `eol: lf` for each, and `git check-attr text -- <CLI_DIR>/icons/icon-192.png` prints `text: unset`.
 
@@ -291,7 +301,7 @@ python <CLI_DIR>/serve.py --stop
 - **`--stop`:** prints `stopped the ticket viewer (pid N)`.
 - **The page:** start it again and open `http://127.0.0.1:<PORT>/`. It shows `<NAME> Tickets`, your icon and your ticket with an "In review" pill. A `#<PREFIX>NNNN` URL selects the ticket.
 
-Set the smoke-test ticket `done` when you are satisfied: `python <CLI_DIR>/tickets.py set <id> --status done`, with a line appended saying what verified it.
+**Leave the smoke-test ticket `in_review` for now.** `done` needs a commit link, and a fresh repo has no commit yet. After the adoption commit, close it with `python <CLI_DIR>/tickets.py set <id> --status done --link-commit <sha>`, with a line appended saying what verified it. Use the adoption commit's sha (`git rev-parse HEAD`, or the commit's short sha).
 
 Then start the viewer for the user as a session background task: `python <CLI_DIR>/serve.py --stop`, then `python -u <CLI_DIR>/serve.py --foreground`.
 
@@ -303,7 +313,7 @@ Then start the viewer for the user as a session background task: `python <CLI_DI
 
 **On the maintainer's machine,** send the `Ticket Master` session one message with:
 - your project name, `PREFIX`, `PORT` and `CLI_DIR`. Ticket Master runs `release.py identify` on your repo, which finds the tool through `tool_dir` or the two default folders, so it needs no `--cli-dir` from you;
-- the version you installed (`1.5.4`), and whether you installed the hooks;
+- the version you installed (`1.6.0`), and whether you installed the hooks;
 - the absolute path of your smoke-test ticket's JSON.
 
 Ticket Master adds you to the adopter table and announces future releases to you.

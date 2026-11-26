@@ -87,6 +87,7 @@ deleted: it moves to `done` or `wont_do` and stays.
 | `links.files` | repo-relative paths, optionally `path:line` or `path:line-line` |
 | `links.commits` | commit hashes (7-40 hex), e.g. the commit that fixed it |
 | `comments` | optional list of `{author, at, body}`, oldest first, appended by `comment` (sect. 3); `author` is the `author` enum, `at` a UTC timestamp, `body` markdown. Never edited. The viewer shows them newest first |
+| `goals` | optional (1.6.0) timeline, kept by `goal` and `step` (sect. 3): a list of `{id, title, status, steps}`, each step `{id, title, status, started, done}`. Ids are `G1`, `G2`, ... and, within a goal, `S1`, `S2`, ...; a status is `pending`, `active` or `done`; `started` and `done` are UTC timestamps or `null`. The viewer's Goals tab shows it. A ticket without it has no timeline |
 
 ## 3. Filing and updating - the CLI
 
@@ -108,6 +109,13 @@ python <CLI_DIR>/tickets.py set <PREFIX>0005 --append-body-file <SCRATCH>/additi
 python <CLI_DIR>/tickets.py set <PREFIX>0005 --blocked-by <PREFIX>0002 --relates 7
 python <CLI_DIR>/tickets.py set <PREFIX>0005 --remove-blocked-by <PREFIX>0002
 python <CLI_DIR>/tickets.py comment <PREFIX>0005 --author pm --body-file <SCRATCH>/comment.md
+python <CLI_DIR>/tickets.py goal add <PREFIX>0005 "<goal>" --step "<step>" --step "<step>"
+python <CLI_DIR>/tickets.py step add <PREFIX>0005 G1 "<step>"
+python <CLI_DIR>/tickets.py step start <PREFIX>0005 G1 S1
+python <CLI_DIR>/tickets.py step done <PREFIX>0005 G1 S1
+python <CLI_DIR>/tickets.py goal start <PREFIX>0005 G2
+python <CLI_DIR>/tickets.py goal done <PREFIX>0005 G2
+python <CLI_DIR>/tickets.py goal list <PREFIX>0005
 python <CLI_DIR>/tickets.py list --active --owner <area>
 python <CLI_DIR>/tickets.py list --tag <tag> --severity high,medium --text <word>
 python <CLI_DIR>/tickets.py show <PREFIX>0005
@@ -115,7 +123,7 @@ python <CLI_DIR>/tickets.py validate
 python <CLI_DIR>/tickets.py import <SCRATCH>/records.json --dry-run
 ```
 
-`import` creates many tickets from one JSON file, with their original dates. It is for migrating from another tracker (the ticket system's `ADOPTING.md`, "Migrating from another tracker"), not for daily filing.
+`import` creates many tickets from one JSON file, with their original dates. It is for migrating from another tracker (the ticket system's `ADOPTING.md`, "Migrating from another tracker"), not for daily filing. A record may carry `goals` (1.6.0), the timeline as the ticket file holds it; it is checked like any ticket's, and a bad one fails the whole import.
 
 - `new` takes the next free id; `--body-file -` reads the body from stdin. Defaults: `--status open`,
   `--target next`.
@@ -138,6 +146,16 @@ python <CLI_DIR>/tickets.py import <SCRATCH>/records.json --dry-run
 - **Comments** (1.4.0) are CLI-only; the viewer stays read-only. `comment <id> --author <enum> --body-file <file|->`
   appends `{author, at, body}` and bumps `updated`; an empty body is refused. A comment is never edited or
   removed: correct one with a later comment.
+- **The timeline: goals and steps** (1.6.0) are CLI-only too. `goal add <id> "<title>"` appends a pending goal
+  (`--step "<title>"`, repeatable, adds its steps in order); `step add <id> <goal> "<title>"` appends a pending step.
+  `step start <id> <goal> <step>` makes the step `active`, stamps `started` and makes its goal `active`; `step done`
+  makes it `done` and stamps `done` (and `started`, if it never was). A goal becomes `done` by itself once all its
+  steps are; adding a step to a done goal opens it again. `goal start` marks a goal active before any step is
+  started; `goal done` closes one only when every step is done (a goal with no steps, too). Goal and step ids are
+  `G1` and `S1`, or just `1` (`g1`, `G01` and `01` work too). Each command bumps `updated`, is checked and written like `comment`, and prints the
+  counts (`updated <id>: step G1 S2 is done (3 of 7 steps done, 1 of 3 goals done)`). `goal list <id>` and `show`
+  print the timeline, `[x]` done, `[>]` active. Titles are one line, up to 200 characters. On a store whose schema
+  predates 1.6.0 the commands refuse and say to upgrade.
 - **Mentions are derived, never stored.** A `<PREFIX>NNNN` in a body or a comment (outside inline code and fenced
   code, and not part of a longer word) is a mention: **just write the id** in the text, there is nothing to run.
   The viewer links it, and the ticket's detail shows "Mentions" and "Mentioned by" groups; `show` prints
@@ -149,7 +167,9 @@ python <CLI_DIR>/tickets.py import <SCRATCH>/records.json --dry-run
 - `validate` checks every file against the schema, file name = id, duplicate ids, tags held by the tag store,
   the tag groups, ticket links that resolve (typed ones too; none to the ticket itself), a block listed on both
   tickets (`links.blocks names X, but X's links.blocked_by lacks Y: run tickets.py set ...`), no ticket both
-  blocking and blocked by the same one, a comment not dated before its ticket, `updated` not before `created`.
+  blocking and blocked by the same one, a comment not dated before its ticket, `updated` not before `created`,
+  and a timeline whose goal ids (and step ids, within a goal) are unique, whose done steps carry a `done` time, and
+  whose goals are done exactly when their steps are.
   It prints `WARNING <id>: mentions <ids> in its body or comments, which is not in the store` (a warning, not a
   failure) for a mentioned id with no ticket, and `WARNING N done ticket(s) have no commit link (<ids>)` for done
   tickets closed before the writers refused that. It exits 1 on any problem - run it
@@ -208,7 +228,7 @@ python <CLI_DIR>/author.py comment <id> --author pm --body-file <file, or - for 
   `tag group type: pick exactly 1 of bug, cleanup, docs (has none)`, may show only on the next `draft`.
 - **`--from-json`** takes one JSON object with the keys of an `import` record: `summary`, `severity`, `owner`,
   `author`, and optionally `status`, `target`, `tags` (names), `body`, `links` (`tickets`, `files`, `commits` and,
-  from 1.4.0, `blocks`, `blocked_by`, `relates_to`). `new` sets `id`, `created` and `updated`. `comments` is
+  from 1.4.0, `blocks`, `blocked_by`, `relates_to`) and `goals` (1.6.0, checked like any timeline; a bad one refuses the ticket). `new` sets `id`, `created` and `updated`. `comments` is
   refused: create the ticket, then add each comment with `comment`.
 - **Typed links and comments through `author.py`** (1.4.0): `draft` and `new` take `--block`, `--blocked-by` and
   `--relates`; `new` writes the other side of each block on the ticket it names, which must exist, and prints
@@ -304,7 +324,11 @@ python <CLI_DIR>/serve.py --foreground      run in this console, Ctrl+C to stop
   tag chips, severity, status, owner, updated) and the selected ticket's detail: the subject, the tags, the body
   rendered by marked and sanitised by DOMPurify, the linked tickets (blocked by, blocks, relates to, plus
   "Mentions" and "Mentioned by"; each opens that ticket; files and commits are text), then the comments, newest
-  first, 10 at a time with a "load more" button. `#<PREFIX>0005` in the URL selects a ticket, so a link can point
+  first, 10 at a time with a "load more" button. Tabs above the detail (1.6.0) switch between **Ticket** (all of
+  the above) and **Goals** (with a steps done/total count): the timeline as one vertical rail, a progress bar and
+  a pulsing "live" dot while steps are left, each goal a numbered node (a check mark when done; the active one
+  pulses) with its steps as a checklist and their "started"/"done" times. It updates live with the board, and the
+  tab chosen stays while tickets change; motion stops under the system's reduced-motion setting. `#<PREFIX>0005` in the URL selects a ticket, so a link can point
   at one; a bare `<PREFIX>NNNN` in a body or comment becomes a link. A peer's id stays text: it is not on this
   board.
 - **The status bar** (1.5.3), fixed to the bottom: on the left "Refreshed <time>" (the last successful load or live
@@ -332,6 +356,10 @@ python <CLI_DIR>/serve.py --foreground      run in this console, Ctrl+C to stop
   the review sends it back, `verified` once the review has passed and the checks are green (only landing it is
   left: the commit, merge or delivery), `blocked` with a body line saying on what, and back to `open` if the work
   is dropped. Work with no ticket gets one when it starts, so the board always shows what is active.
+- **The timeline tracks the work, live** (1.6.0, user, 2026-11-26). When an agent starts work on a ticket it sets
+  up the goals and their steps (`goal add ... --step ...`), then runs `step start` as it begins each step and
+  `step done` as each completes, at the time it happens and never in a batch at the end, so the Goals tab shows
+  live progress. A step found along the way is added with `step add`; a plan that changes keeps its done steps.
 - **`user_review` hands a ticket to the user** (1.4.0): set it, from any active status, when the ticket needs the
   user to look at something or decide, with a body line or a comment saying what. The viewer highlights it, so
   the user finds what waits on them. Once the user has answered, move it on (`in_progress`, `verified`, ...).
@@ -436,7 +464,8 @@ and the running viewer. Nobody else edits them.
 ## 7. What is not built
 
 - No editing from the page - it is view-only.
-- No editing of comments, no commenting from the page (comments are written by the CLI), no assignees beyond
+- No editing of comments, no commenting from the page (comments are written by the CLI), no editing or removing
+  of goals and steps (the timeline is only added to and marked, by the CLI), no assignees beyond
   `owner_area`, and no history beyond `git log` of the file.
 - No authentication: anyone who can reach port `<PORT>` can read the tickets. The default bind is localhost; do
   not use `--all-interfaces` on an untrusted network.

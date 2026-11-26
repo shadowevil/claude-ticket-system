@@ -151,9 +151,70 @@
           }
         }
       }
+    },
+    "goals": {
+      "description": "Optional (1.6.0): the ticket's timeline, in order, kept by tickets.py goal and step as an agent works; the viewer's Goals tab shows it. tickets.py validate also checks the ids are unique (goal ids in the ticket, step ids in their goal), a done step has its done time, and a done goal has only done steps.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "title", "status", "steps"],
+        "properties": {
+          "id": {
+            "description": "G plus a number, in the order added: G1, G2, ...",
+            "type": "string",
+            "pattern": "^G[1-9][0-9]{0,5}$"
+          },
+          "title": {
+            "$ref": "#/$defs/timeline_title"
+          },
+          "status": {
+            "$ref": "#/$defs/timeline_status"
+          },
+          "steps": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["id", "title", "status", "started", "done"],
+              "properties": {
+                "id": {
+                  "description": "S plus a number, unique within its goal: S1, S2, ...",
+                  "type": "string",
+                  "pattern": "^S[1-9][0-9]{0,5}$"
+                },
+                "title": {
+                  "$ref": "#/$defs/timeline_title"
+                },
+                "status": {
+                  "$ref": "#/$defs/timeline_status"
+                },
+                "started": {
+                  "description": "When the step was started (step start), or null.",
+                  "anyOf": [{"$ref": "#/$defs/utc_timestamp"}, {"type": "null"}]
+                },
+                "done": {
+                  "description": "When the step was finished (step done), or null.",
+                  "anyOf": [{"$ref": "#/$defs/utc_timestamp"}, {"type": "null"}]
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "$defs": {
+    "timeline_title": {
+      "description": "One line (tickets.py refuses a line break).",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200
+    },
+    "timeline_status": {
+      "type": "string",
+      "enum": ["pending", "active", "done"]
+    },
     "ticket_ids": {
       "type": "array",
       "uniqueItems": true,

@@ -16,7 +16,7 @@ and versions. The project owns its board: its tickets, `config.json`, tags and r
 
 | setting | this project |
 |---|---|
-| Ticket system version | 1.5.4 |
+| Ticket system version | 1.6.0 |
 | CLI | `python <CLI_DIR>/tickets.py` |
 | Store | `.claude/tickets/` (`config.json` for the id prefix, first number, name, viewer port and tag groups; `tags.json`, the tag store of numbered tags; `ticket.schema.json` for fields and enums) |
 | Store, absolute (for replies to a peer) | `<REPO>\.claude\tickets\` |
@@ -131,6 +131,13 @@ only log; they never block a tool call.
 - **Comments.** `<AUTHOR> comment <id> --author <you> --body-file <file|->` appends a comment (the viewer is
   read-only, so this is the only way). Use one for a short update or an answer; use `--append-body-file` for
   findings that belong to the ticket itself. A comment is never edited: correct it with a later one.
+- **Goals and steps: set them up when you start, mark each as it happens** (the rules doc's rules section). When
+  you start work on a ticket, add its goals and their steps:
+  `<CLI> goal add <id> "<goal>" --step "<step>" --step "<step>"` (one goal per call; `step add <id> G1 "<step>"`
+  adds one later). Then run `<CLI> step start <id> G1 S1` as you begin each step and `<CLI> step done <id> G1 S1`
+  as it completes, at that moment, not in a batch at the end: the viewer's Goals tab shows the progress live. A
+  goal becomes done by itself when its last step is; `goal done <id> G2` closes one without steps. `goal list
+  <id>` prints the timeline. Titles are one line.
 - **Mention a ticket by writing its id** (`XY-0004`) in a body or a comment: the viewer links it and both tickets
   show the mention, so no link command is needed. Put an id in inline code or a code block only when you do not
   want a mention. `validate` warns about a mentioned id that has no ticket.

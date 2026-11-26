@@ -20,7 +20,18 @@
                                                            (--base), with the project's values, free-text lines
                                                            and blocks kept; where both changed the same text it
                                                            writes a conflict block and exits 2; --base is
-                                                           required (exit 1 without it)
+                                                           required (exit 1 without it). It also reports any x.y.z
+                                                           in kept project text other than the release's (LOOK when
+                                                           it is the --base release's, else NOTE; versions right after
+                                                           other software's name, e.g. "Python 3.13.1", are skipped);
+                                                           the release's version is its export's VERSION file, or
+                                                           --release-version x.y.z
+    python ticket-system/tools/release.py merge-doc <release-doc> <project-doc> --base <old-release-doc>
+                                                           --check-resolved <resolved-doc>
+                                                           after resolving the conflict blocks: redoes the merge in
+                                                           memory (writes nothing) and reports conflict markers left,
+                                                           each conflict's release lines the resolved doc no longer
+                                                           holds, and stale versions in it; exit 2 on any LOOK
 
 Every file is hashed several ways:
   raw       - the exact bytes; `check` compares it, so a manifest proves byte identity with payload/;
@@ -1532,6 +1543,53 @@ def doc_release_label(path):
 	return os.path.basename(path)
 
 
+# Stale versions (B70): an x.y.z in project text the merge keeps, other than the release's own. Not part of a longer
+# dotted number (an IP address, a.b.c.d) or a word, and not right after the name of other software ("Python 3.13.1").
+doc_version_token = re.compile(r"(?<![\w.])v?(\d+\.\d+\.\d+)(?![\w-]|\.\d)")
+doc_other_software = re.compile(r"(?<!\w)(?:python|node(?:\.?js)?|npm|pip|git|cmake|gcc|clang|msvc|visual studio|java|jdk|"
+	r"dotnet|\.net|go|rust|cargo|qt|boost|sdl\d?|windows|ubuntu|debian|macos|postgres(?:ql)?|mysql|sqlite)[ \t]*$",
+	re.IGNORECASE)
+
+
+def doc_stale_versions(lines, release_version, release_keys):
+	"""[(offset, version)] for each x.y.z in lines that is not release_version, skipping lines the release text holds
+	too (release_keys: its lines without trailing white space) and versions named right after other software."""
+	found = []
+	for offset, line in enumerate(lines):
+		if line.rstrip() in release_keys:
+			continue
+		for match in doc_version_token.finditer(line):
+			version = match.group(1)
+			if version == release_version or doc_other_software.search(line[:match.start()]):
+				continue
+			found.append((offset, version))
+	return found
+
+
+def doc_stale_report(stale, lines, numbers, release_version, base_version, where):
+	"""LOOK lines for stale versions: one per line, LOOK where the version is the base's (the release the project ran),
+	NOTE otherwise. Returns (look, notes)."""
+	look, notes = [], []
+	# One entry per line: a line naming the base release is a LOOK; any other line lists its versions once each.
+	base_lines = sorted({offset for offset, version in stale if version == base_version})
+	other_versions = {}
+	for offset, version in stale:
+		if version != base_version and offset not in base_lines and version not in other_versions.setdefault(offset, []):
+			other_versions[offset].append(version)
+	at_base = [(offset, base_version) for offset in base_lines]
+	other = [(offset, ", ".join(other_versions[offset])) for offset in sorted(other_versions)]
+	if at_base:
+		look.append("{} line(s) of project text in the {} name {}, the release you ran before; the release is {} (update "
+			"them unless they mean that old release):".format(len(at_base), where, base_version, release_version))
+		look.extend("    {:>4}: {}".format(numbers[offset], doc_ascii(lines[offset].strip())) for offset, _ in at_base)
+	if other:
+		notes.append("{} line(s) of project text in the {} name a version other than the release {} (check each is not a "
+			"stale ticket-system version):".format(len(other), where, release_version))
+		notes.extend("    {:>4}: {} [{}]".format(numbers[offset], doc_ascii(lines[offset].strip()), version)
+			for offset, version in other)
+	return look, notes
+
+
 def doc_merge3(base, mine, theirs):
 	"""A diff3 of three line lists, mine (the project) and theirs (the release) against base. Returns [(kind, b1, b2, m1, m2, t1, t2)] covering all three lists in order: kind
 	"same" (all three alike), "mine" (only the project changed it), "theirs" (only the release did), "both" (both
@@ -1662,17 +1720,79 @@ def write_doc_atomically(path, text):
 		raise SystemExit("ERROR cannot write {} ({})".format(doc_ascii(path), doc_ascii(str(error.strerror or error))))
 
 
+def doc_check_resolved(path, conflict_release, release_keys, release_version, base_version, out_path):
+	"""merge-doc --check-resolved: the merge's conflicts are known again (redone in memory); report, for the resolved
+	doc at path, conflict markers left in it, each conflict's release lines it no longer holds (a resolution that took
+	the project's side may have dropped a release rule), and stale versions in its project text. Exit 2 on a LOOK."""
+	lines, _, _ = read_doc(path)
+	keys = {line.rstrip() for line in lines}
+	notes, look = [], []
+	if out_path:
+		notes.append("--check-resolved writes nothing; --out is ignored")
+	markers = [number for number, line in enumerate(lines, 1) if doc_conflict_marker.match(line)]
+	if markers:
+		look.append("{} conflict marker line(s) are left in the resolved doc: line(s) {}".format(len(markers),
+			", ".join(str(number) for number in markers)))
+	missing_total = 0
+	for index, (span, release_text) in enumerate(conflict_release, 1):
+		missing = [line for line in release_text if line.strip() and line.rstrip() not in keys]
+		if not missing:
+			continue
+		missing_total += len(missing)
+		look.append("conflict {} (release line(s) {}): {} release line(s) are not in the resolved doc; check each was "
+			"meant to go:".format(index, span, len(missing)))
+		look.extend("    {}".format(doc_ascii(line.strip())) for line in missing)
+	notes.append("{} conflict(s) in the merge; {} of their release line(s) missing from the resolved doc".format(
+		len(conflict_release), missing_total))
+	if release_version:
+		# Lines of a conflict block still left in the doc are not checked: they are not resolved text yet.
+		outside, inside = [], False
+		for number, line in enumerate(lines, 1):
+			if line.startswith("<<<<<<<"):
+				inside = True
+			elif line.startswith(">>>>>>>"):
+				inside = False
+			elif not inside:
+				outside.append(number)
+		texts = [lines[number - 1] for number in outside]
+		stale_look, stale_notes = doc_stale_report(doc_stale_versions(texts, release_version, release_keys), texts,
+			outside, release_version, base_version, "resolved doc")
+		look.extend(stale_look)
+		notes.extend(stale_notes)
+	else:
+		notes.append("the release's version is not known (no VERSION file above the release doc); give "
+			"--release-version x.y.z to check the text for stale versions")
+	print("checked {} ({} lines) against the merge's {} conflict(s)".format(doc_ascii(path), len(lines),
+		len(conflict_release)))
+	for note in notes:
+		print(("NOTE " + note) if not note.startswith("    ") else note)
+	for line in look:
+		print(("LOOK " + line) if not line.startswith("    ") else line)
+	if look:
+		print("exit 2: something to look at in the resolved doc.")
+		return 2
+	print("exit 0: every conflict's release lines are in the resolved doc and no stale version was found.")
+	return 0
+
+
 def command_merge_doc(args):
 	release_doc = os.path.abspath(args.release_doc)
 	project_doc = os.path.abspath(args.project_doc)
-	out_path = os.path.abspath(args.out)
 	if not args.base:
 		raise SystemExit("ERROR give --base <the rules doc of the release you run now> (export that release): without "
 			"the base a three-way merge cannot tell your changes from the release's")
+	if not args.out and not args.check_resolved:
+		raise SystemExit("ERROR give --out <file> for the merged doc (or --check-resolved <resolved doc> to check one)")
+	if args.release_version and not version_pattern.match(args.release_version):
+		raise SystemExit("ERROR --release-version takes x.y.z")
+	out_path = os.path.abspath(args.out) if args.out else None
 	base_doc = os.path.abspath(args.base)
 	inputs = [("release_doc", release_doc), ("project_doc", project_doc), ("--base", base_doc)]
+	if args.check_resolved and same_path(os.path.abspath(args.check_resolved), project_doc):
+		raise SystemExit("ERROR --check-resolved is the project doc; check the resolved file before copying it over "
+			"(the merge is redone from your old doc, so it must still be in place)")
 	for label, path in inputs:
-		if same_path(out_path, path):
+		if out_path and same_path(out_path, path):
 			raise SystemExit("ERROR --out is the {} ({}); write the merged doc elsewhere, review the diff, then copy it "
 				"over".format(label, doc_ascii(path)))
 	release_lines, _, _ = read_doc(release_doc)
@@ -1687,6 +1807,8 @@ def command_merge_doc(args):
 	base, _, _, base_template = doc_items(base_lines, "base doc")
 	release_label = "release " + doc_release_label(release_doc)
 	base_label = "base " + doc_release_label(base_doc)
+	release_version = args.release_version or (release_label[8:] if version_pattern.match(release_label[8:]) else None)
+	base_version = base_label[5:] if version_pattern.match(base_label[5:]) else None
 	notes, look = [], []
 
 	# The values: --set, then config.json, then what the project doc shows, then where the doc sits.
@@ -1730,6 +1852,8 @@ def command_merge_doc(args):
 		return doc_value_pattern.sub(lambda found: values.get(found.group(1), found.group(0)), line)
 
 	filled = [fill(line) for line in release]
+	# The release's own text for the stale-version check: values filled, but none of the project's free text or blocks.
+	release_keys = {line.rstrip() for line in filled}
 	base_filled = [fill(line) for line in base]
 	if release_template and not base_template:
 		# A base from before the template markers (1.4.0 and earlier) holds the porting note as plain text: its lines
@@ -1798,8 +1922,12 @@ def command_merge_doc(args):
 	chunks = doc_merge3(base_filled, project, theirs)
 	merged, conflicts, counts = [], [], {"mine": 0, "theirs": 0, "both": 0}
 	taken_release = []
+	# The project text the merge keeps, as merged offsets, for the stale-version check (B70); and each conflict's
+	# release lines, for --check-resolved.
+	kept_project, conflict_release = [], []
 	for kind, b1, b2, m1, m2, t1, t2 in chunks:
 		if kind in ("same", "both", "mine"):
+			kept_project.extend(range(len(merged), len(merged) + m2 - m1))
 			merged.extend(project[m1:m2])
 			if kind != "same":
 				counts[kind] += 1
@@ -1813,6 +1941,7 @@ def command_merge_doc(args):
 		release_text = doc_free_only(base_filled[b1:b2], theirs[t1:t2])
 		if release_text:
 			# All the release changed here is free-text places: the project's text is what goes there.
+			kept_project.extend(range(len(merged), len(merged) + m2 - m1))
 			merged.extend(project[m1:m2])
 			notes.append("kept your line(s) {} for {} (release line(s) {})".format(
 				doc_span(project_numbers, m1, m2), ", ".join("<{}>".format(name) for name in sorted({name
@@ -1828,6 +1957,11 @@ def command_merge_doc(args):
 		merged.append(">>>>>>> " + release_label)
 		conflicts.append((start, len(merged), doc_span(project_numbers, m1, m2),
 			doc_span(theirs_numbers, t1, t2)))
+		conflict_release.append((doc_span(theirs_numbers, t1, t2), theirs[t1:t2]))
+
+	if args.check_resolved:
+		return doc_check_resolved(os.path.abspath(args.check_resolved), conflict_release, release_keys, release_version,
+			base_version, out_path)
 
 	write_doc_atomically(out_path, ("\ufeff" if bom else "") + newline.join(merged) + newline)
 
@@ -1852,6 +1986,16 @@ def command_merge_doc(args):
 		look.append("{} merged line(s) hold a free-text place from the release with no text of yours; write yours "
 			"there:".format(len(open_free)))
 		look.extend(open_free)
+	if release_version:
+		kept = [merged[offset] for offset in kept_project]
+		stale_look, stale_notes = doc_stale_report(doc_stale_versions(kept, release_version, release_keys), kept,
+			[offset + 1 for offset in kept_project], release_version, base_version, "merged doc")
+		look.extend(stale_look)
+		for note in stale_notes:
+			print(("NOTE " + note) if not note.startswith("    ") else note)
+	else:
+		print("NOTE the release's version is not known (no VERSION file above the release doc); give --release-version "
+			"x.y.z to check your text for stale versions")
 	if conflicts:
 		look.append("{} conflict(s): you and the release both changed the same text. Each block holds your lines, then "
 			"after '|||||||' the base's, after '=======' the release's; keep what is right and delete the marker "
@@ -2038,8 +2182,15 @@ def main():
 		help="merge a release's rules doc into a project's ported copy, keeping the project's values and parts")
 	merge_doc.add_argument("release_doc", help="the release's dot-claude/docs/tickets.md (e.g. from export)")
 	merge_doc.add_argument("project_doc", help="the project's ported copy (e.g. <repo>/.claude/docs/tickets.md)")
-	merge_doc.add_argument("--out", required=True,
-		help="where to write the merged doc: a new file, never one of the inputs (review the diff, then copy it over)")
+	merge_doc.add_argument("--out",
+		help="where to write the merged doc: a new file, never one of the inputs (review the diff, then copy it over); "
+		"required unless --check-resolved is given")
+	merge_doc.add_argument("--check-resolved", metavar="RESOLVED_DOC",
+		help="after resolving the conflict blocks, before copying the result over project_doc: redo the merge in memory (writes nothing) and list each conflict's "
+		"release lines that RESOLVED_DOC no longer holds, and stale versions in its project text")
+	merge_doc.add_argument("--release-version", metavar="X.Y.Z",
+		help="the release being merged, for the stale-version check (default: the VERSION file of the export the "
+		"release doc sits in)")
 	merge_doc.add_argument("--base", help="the rules doc of the release your copy runs now (export that release): the "
 		"common ancestor of the three-way merge. Required: the command refuses without it")
 	merge_doc.add_argument("--config", help="the project's config.json (default: <repo>/.claude/tickets/config.json when "

@@ -799,6 +799,251 @@ select {
 	display: none;
 }
 
+/* The detail's tabs (B72): Ticket and Goals, on every layout. */
+.detail-tabs {
+	display: flex;
+	padding: 0 16px;
+	background: var(--panel);
+	border-bottom: 1px solid var(--border);
+}
+
+.detail-tab {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	padding: 8px 14px;
+	border: 0;
+	border-bottom: 2px solid transparent;
+	background: none;
+	color: var(--muted);
+	font: inherit;
+	cursor: pointer;
+}
+
+.detail-tab:hover {
+	color: var(--text);
+}
+
+.detail-tab.active {
+	color: var(--text-strong);
+	border-bottom-color: var(--accent);
+}
+
+.detail-tab-count {
+	padding: 1px 6px;
+	border-radius: 8px;
+	background: var(--chrome);
+	color: var(--muted);
+	font-size: 11px;
+}
+
+/* --- the Goals tab: one vertical rail of goals, each with its steps as a checklist ----------- */
+
+.goals-view {
+	--done: #89d185;
+	--done-text: #1e1e1e;
+}
+
+:root[data-theme="light"] .goals-view {
+	--done: #2f7d32;
+	--done-text: #ffffff;
+}
+
+.timeline-empty {
+	color: var(--muted);
+}
+
+.timeline-summary {
+	margin-bottom: 8px;
+	color: var(--muted);
+}
+
+.timeline-live {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	color: var(--done);
+	font-size: 12px;
+}
+
+.timeline-live-dot {
+	width: 8px;
+	height: 8px;
+	border-radius: 50%;
+	background: var(--done);
+	animation: timeline-blink 1.4s infinite;
+}
+
+.timeline-progress {
+	height: 6px;
+	margin-bottom: 18px;
+	border-radius: 3px;
+	background: var(--chrome);
+	overflow: hidden;
+}
+
+.timeline-progress > span {
+	display: block;
+	height: 100%;
+	background: var(--accent);
+	transition: width 0.4s;
+}
+
+.timeline {
+	list-style: none;
+	margin: 0 0 0 10px;
+	padding: 0 0 0 26px;
+	border-left: 2px solid var(--border);
+}
+
+.timeline-goal {
+	position: relative;
+	margin-bottom: 22px;
+}
+
+.timeline-goal:last-child {
+	margin-bottom: 0;
+}
+
+.timeline-node {
+	position: absolute;
+	left: -36px;
+	top: 0;
+	display: grid;
+	place-items: center;
+	width: 18px;
+	height: 18px;
+	border-radius: 50%;
+	border: 2px solid var(--border);
+	background: var(--bg);
+	color: var(--muted);
+	font-size: 10px;
+	line-height: 1;
+}
+
+.timeline-goal.done > .timeline-node {
+	border-color: var(--done);
+	background: var(--done);
+	color: var(--done-text);
+}
+
+/* The goal being worked on pulses with an expanding ring (the user asked for it, 2026-11-26). */
+.timeline-goal.active > .timeline-node {
+	border-color: var(--accent);
+	color: var(--text-strong);
+	animation: timeline-ring 1.6s ease-out infinite;
+}
+
+.timeline-goal-title {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: baseline;
+	gap: 8px;
+	margin: 0;
+	font-size: 14px;
+	font-weight: 600;
+	color: var(--text-strong);
+	overflow-wrap: anywhere;
+}
+
+.timeline-goal.pending .timeline-goal-title {
+	color: var(--muted);
+}
+
+.timeline-steps {
+	list-style: none;
+	margin: 8px 0 0;
+	padding: 0;
+}
+
+.timeline-step {
+	display: flex;
+	align-items: flex-start;
+	gap: 8px;
+	padding: 4px 0;
+}
+
+.timeline-check {
+	display: grid;
+	flex: none;
+	place-items: center;
+	width: 14px;
+	height: 14px;
+	margin-top: 2px;
+	border-radius: 3px;
+	border: 1.5px solid var(--border);
+	font-size: 10px;
+	line-height: 1;
+}
+
+.timeline-step-title {
+	overflow-wrap: anywhere;
+}
+
+.timeline-step.pending .timeline-step-title {
+	color: var(--muted);
+}
+
+.timeline-step.active .timeline-step-title {
+	color: var(--text-strong);
+}
+
+.timeline-step.active .timeline-check {
+	border-color: var(--accent);
+	animation: timeline-blink 1.4s infinite;
+}
+
+.timeline-step.done .timeline-check {
+	border-color: var(--done);
+	background: var(--done);
+	color: var(--done-text);
+}
+
+.timeline-step.done .timeline-step-title {
+	color: var(--muted);
+	text-decoration: line-through;
+}
+
+.timeline-time {
+	font-family: "Cascadia Code", Consolas, monospace;
+	font-size: 11px;
+	font-weight: normal;
+	color: var(--muted);
+	white-space: nowrap;
+}
+
+.timeline-step .timeline-time {
+	margin-left: auto;
+	padding-left: 10px;
+}
+
+@keyframes timeline-blink {
+	0%, 100% { opacity: 1; }
+	50% { opacity: 0.25; }
+}
+
+@keyframes timeline-ring {
+	0% { box-shadow: 0 0 0 0 rgba(0, 122, 204, 0.7); }
+	70% { box-shadow: 0 0 0 9px rgba(0, 122, 204, 0); }
+	100% { box-shadow: 0 0 0 0 rgba(0, 122, 204, 0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.timeline-live-dot,
+	.timeline-goal.active > .timeline-node,
+	.timeline-step.active .timeline-check {
+		animation: none;
+	}
+
+	.timeline-goal.active > .timeline-node {
+		box-shadow: 0 0 0 3px rgba(0, 122, 204, 0.35);
+	}
+
+	.timeline-progress > span {
+		transition: none;
+	}
+}
+
 .detail {
 	max-width: 980px;
 	padding: 16px 22px 40px;
@@ -1307,6 +1552,15 @@ select {
 		width: 20px;
 		height: 20px;
 		fill: currentColor;
+	}
+
+	.detail-tabs {
+		padding: 0 8px;
+	}
+
+	.detail-tab {
+		min-height: 44px;
+		font-size: 15px;
 	}
 
 	.detail {
